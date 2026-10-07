@@ -1,6 +1,6 @@
 // The tag form, shared by "add" and "edit".
 import { h, chips, blobUrl } from '../ui.js'
-import { COLOUR_NAMES, nameColour } from '../lib/colour.js'
+import { COLOUR_NAMES, paletteColour } from '../lib/colour.js'
 import { rotateImages } from '../lib/cutout.js'
 
 export const CATEGORY_LABELS = {
@@ -56,20 +56,26 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
     renderLayer()
   })
 
-  // Colour: detected automatically, but both shade and name can be changed.
-  const colour = item.colour ?? { hex: '#999999', name: 'grey', auto: false }
-  const autoBadge = h('span', { class: 'badge' }, 'detected')
-  const nameSelect = h('select', { onchange: () => { colour.name = nameSelect.value; colour.auto = false; autoBadge.hidden = true } },
-    COLOUR_NAMES.map((n) => h('option', { value: n, selected: n === colour.name }, n)))
-  const swatch = h('input', { type: 'color', class: 'swatch', value: colour.hex, 'aria-label': 'Colour shade',
-    oninput: () => {
-      colour.hex = swatch.value
-      colour.name = nameColour(swatch.value)
-      colour.auto = false
-      nameSelect.value = colour.name
-      autoBadge.hidden = true
-    } })
-  autoBadge.hidden = !colour.auto
+  // Colour: detected automatically; tap a square to choose another.
+  let colour = item.colour ?? paletteColour('grey')
+  const current = h('div', { class: 'row colour-now' })
+  const squares = h('div', { class: 'colour-grid', role: 'radiogroup', 'aria-label': 'Colour' })
+  const renderColour = () => {
+    current.replaceChildren(
+      h('span', { class: 'dot big', style: `background:${colour.hex}` }),
+      h('span', {}, colour.name),
+      ...(colour.auto ? [h('span', { class: 'badge' }, 'detected')] : []))
+    squares.replaceChildren(...COLOUR_NAMES.map((name) => {
+      const { hex } = paletteColour(name)
+      const on = name === colour.name
+      return h('button', {
+        type: 'button', class: 'square' + (on ? ' on' : ''), style: `background:${hex}`,
+        role: 'radio', 'aria-checked': String(on), 'aria-label': name, title: name,
+        onclick: () => { colour = paletteColour(name); renderColour() },
+      })
+    }))
+  }
+  renderColour()
 
   const material = h('select', { onchange: () => { item.material = material.value || null } },
     h('option', { value: '' }, '—'),
@@ -103,7 +109,7 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
     layerField,
     field('Warmth', chips([1, 2, 3, 4, 5].map((n) => [n, String(n)]), item.warmth, (v) => { item.warmth = v }),
       h('span', { class: 'hint' }, '1 = very light, 5 = very warm')),
-    field('Colour', h('div', { class: 'row' }, swatch, nameSelect, autoBadge)),
+    field('Colour', current, squares),
     field('Formality', chips([['casual', 'Casual'], ['smart', 'Smart'], ['formal', 'Formal']],
       item.formality, (v) => { item.formality = v })),
     field('Material', material),

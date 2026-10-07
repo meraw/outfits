@@ -61,6 +61,11 @@ const PALETTE = {
 }
 export const COLOUR_NAMES = Object.keys(PALETTE)
 
+// The colour of a square in the picker, as saved when tapped.
+export function paletteColour(name) {
+  return { name, hex: PALETTE[name], auto: false }
+}
+
 const paletteLab = Object.entries(PALETTE).map(([name, hex]) => [name, hexToLab(hex)])
 
 export function nameColour(hex) {

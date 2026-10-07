@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dominantColour, nameColour, COLOUR_NAMES } from '../src/lib/colour.js'
+import { dominantColour, nameColour, COLOUR_NAMES, paletteColour } from '../src/lib/colour.js'
 
 // Builds RGBA pixel data from a list of [r, g, b, a, count] runs.
 function pixels(runs) {
@@ -80,5 +80,15 @@ describe('colour list', () => {
       'turquoise', 'light blue', 'blue', 'navy',
       'lilac', 'purple',
     ])
+  })
+})
+
+describe('paletteColour', () => {
+  it('gives the square colour for a name, marked as chosen by hand', () => {
+    expect(paletteColour('orange')).toEqual({ name: 'orange', hex: '#e8781e', auto: false })
+  })
+
+  it('has a proper colour for every name in the list', () => {
+    for (const name of COLOUR_NAMES) expect(paletteColour(name).hex).toMatch(/^#[0-9a-f]{6}$/)
   })
 })
