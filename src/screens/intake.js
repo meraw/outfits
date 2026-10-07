@@ -37,8 +37,8 @@ export function intakeScreen(root) {
       item,
       images: result.images,
       removed: result.removed,
-      async onSave(tagged) {
-        await saveItem(tagged, result.images)
+      async onSave(tagged, turned) {
+        await saveItem(tagged, turned ?? result.images)
         location.hash = '#/'
       },
     }))

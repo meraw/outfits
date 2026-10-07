@@ -125,7 +125,7 @@ button:disabled { opacity: .5; }
   .item-form { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
   .pic-box { position: sticky; top: 76px; height: calc(100dvh - 100px); min-height: 200px; }
 }
-.pic-box .small { position: absolute; right: 10px; bottom: 10px; background: rgba(255,255,255,.9); }
+
 .note { margin: 0; padding: 10px 14px; border-radius: var(--radius); background: #fff3e0; font-size: 14px; }
 
 .field { display: grid; gap: 8px; }
@@ -159,3 +159,6 @@ textarea { resize: vertical; width: 100%; }
   background: var(--bg);
 }
 .actions .primary { min-width: 140px; }
+
+.pic-buttons { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 8px; }
+.pic-buttons .small { background: rgba(255,255,255,.9); }

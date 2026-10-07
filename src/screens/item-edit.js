@@ -23,8 +23,8 @@ export async function editScreen(root, id) {
     item,
     images,
     extra: remove,
-    async onSave(edited) {
-      await saveItem(edited) // tags only; photos stay as they are
+    async onSave(edited, turned) {
+      await saveItem(edited, turned ?? undefined) // photos only change if rotated
       location.hash = '#/'
     },
   }))

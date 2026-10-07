@@ -1,5 +1,6 @@
 // Photo → shrunk original, background-free cutout, small thumbnail, colour.
 import { trimBounds } from './trim.js'
+import { rotatePixels } from './rotate.js'
 import { dominantColour, nameColour } from './colour.js'
 
 const MAX_SIDE = 1600
@@ -24,6 +25,26 @@ export async function processPhoto(file, onStatus = () => {}) {
   const colour = found ? { hex: found.hex, name: nameColour(found.hex), auto: true } : null
 
   return { images: { original, cutout: picture, thumb }, colour, removed: !!cutout }
+}
+
+// Turns all three pictures of an item a quarter turn clockwise.
+export async function rotateImages(images) {
+  const [original, cutout, thumb] = await Promise.all(
+    [images.original, images.cutout, images.thumb].map(rotateBlob))
+  return { ...images, original, cutout, thumb }
+}
+
+async function rotateBlob(blob) {
+  const img = await load(blob)
+  const src = canvas(img.width, img.height)
+  const ctx = src.getContext('2d', { willReadFrequently: true })
+  ctx.drawImage(img, 0, 0)
+  img.close()
+  const data = rotatePixels(ctx.getImageData(0, 0, src.width, src.height).data, src.width, src.height)
+  const out = canvas(src.height, src.width)
+  out.getContext('2d').putImageData(new ImageData(data, out.width, out.height), 0, 0)
+  // Keep each picture's own format (JPEG original, PNG cutout, WebP thumb).
+  return toBlob(out, blob.type || 'image/png', 0.92)
 }
 
 async function removeBackground(blob, onStatus) {

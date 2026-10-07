@@ -1,6 +1,7 @@
 // The tag form, shared by "add" and "edit".
 import { h, chips, blobUrl } from '../ui.js'
 import { COLOUR_NAMES, nameColour } from '../lib/colour.js'
+import { rotateImages } from '../lib/cutout.js'
 
 export const CATEGORY_LABELS = {
   top: 'Top', bottom: 'Bottom', dress: 'Dress', outerwear: 'Outerwear', shoes: 'Shoes', accessory: 'Accessory',
@@ -13,17 +14,29 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
   item = structuredClone(item)
   const err = h('p', { class: 'error', role: 'alert' })
 
-  // Picture, with a switch between cutout and original photo.
+  // Picture, with a switch between cutout and original photo, and a
+  // quarter-turn button for photos that came out sideways.
   let showOriginal = false
+  let rotated = false
   const pic = h('img', { class: 'pic', alt: '' })
-  const cutoutUrl = blobUrl(images.cutout), originalUrl = blobUrl(images.original)
+  let cutoutUrl, originalUrl
+  const setUrls = () => { cutoutUrl = blobUrl(images.cutout); originalUrl = blobUrl(images.original) }
+  setUrls()
   const flip = h('button', { type: 'button', class: 'small', onclick: () => { showOriginal = !showOriginal; showPic() } })
+  const turn = h('button', { type: 'button', class: 'small', 'aria-label': 'Rotate a quarter turn', onclick: async () => {
+    turn.disabled = save.disabled = true
+    images = await rotateImages(images)
+    rotated = true
+    setUrls()
+    showPic()
+    turn.disabled = save.disabled = false
+  } }, '↻ Rotate')
   const showPic = () => {
     pic.src = showOriginal ? originalUrl : cutoutUrl
     flip.textContent = showOriginal ? 'Show cutout' : 'Show original'
   }
   showPic()
-  const picBox = h('div', { class: 'pic-box' }, pic, flip)
+  const picBox = h('div', { class: 'pic-box' }, pic, h('div', { class: 'pic-buttons' }, turn, flip))
 
   // Layer only matters for things you wear in layers.
   const layerField = h('div', { class: 'field' })
@@ -80,7 +93,7 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
     }
     save.disabled = true
     item.colour = { ...colour }
-    await onSave(item)
+    await onSave(item, rotated ? images : null) // new pictures only if they were turned
   } },
     picBox,
     h('div', { class: 'fields' },
