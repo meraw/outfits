@@ -28,11 +28,26 @@ export default defineConfig({
         // Its model files are cached by the library itself.
         globPatterns: ['**/*.{js,mjs,css,html,png,svg,webmanifest}'],
         maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
-        runtimeCaching: [{
-          urlPattern: /\.wasm$/,
-          handler: 'CacheFirst',
-          options: { cacheName: 'engine', expiration: { maxEntries: 4 } },
-        }],
+        runtimeCaching: [
+          {
+            urlPattern: /\.wasm$/,
+            handler: 'CacheFirst',
+            options: { cacheName: 'engine', expiration: { maxEntries: 4 } },
+          },
+          {
+            // The background remover's model and engine (~110 MB in ~30
+            // pieces). The library only relies on the browser's normal
+            // cache, which phones clear often, so it kept re-downloading.
+            // Keeping them here means they download once.
+            urlPattern: ({ url }) => url.hostname === 'staticimgly.com',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'background-remover',
+              cacheableResponse: { statuses: [200] },
+              expiration: { maxEntries: 80 },
+            },
+          },
+        ],
       },
     }),
   ],

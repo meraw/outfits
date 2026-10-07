@@ -51,11 +51,14 @@ async function removeBackground(blob, onStatus) {
   onStatus('Removing background…')
   // Loaded only when needed: it's big, and the wardrobe screen doesn't need it.
   const { removeBackground } = await import('@imgly/background-removal')
+  const start = Date.now()
   return removeBackground(blob, {
     model: 'isnet_fp16',
     output: { format: 'image/png' },
     progress(key, current, total) {
-      if (key.startsWith('fetch') && total > 0) {
+      // Files already saved on the phone load in well under a second, so
+      // only mention downloading when it's actually happening.
+      if (key.startsWith('fetch') && total > 0 && Date.now() - start > 1500) {
         const pct = Math.round((current / total) * 100)
         onStatus(`First time only: downloading the background remover… ${pct}%`)
       } else if (key.startsWith('compute')) {
