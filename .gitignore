@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dev-dist/
+# Kept off the public repo, like in the game
+CLAUDE.md
+.claude/
