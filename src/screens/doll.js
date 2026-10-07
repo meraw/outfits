@@ -3,12 +3,13 @@ import { h, svg, blobUrl } from '../ui.js'
 import { listItems, getImages, getSetting, setSetting, saveItem } from '../db.js'
 import {
   DOLL_WIDTH, DOLL_TOP, DOLL_HEIGHT, SHAPE_SLIDERS, SHAPE_MIN, SHAPE_MAX, DEFAULT_SHAPE,
-  dollGeometry, placeItem, wearItem, sortForDrawing,
+  dollGeometry, placeItem, wearItem,
 } from '../lib/doll.js'
 import { CATEGORY_LABELS } from './item-form.js'
 import { fitFromBlob, validFit } from '../lib/fit.js'
 import { sleeveMesh, legMesh } from '../lib/garment-mesh.js'
 import { warpTriangles } from '../lib/warp.js'
+import { canTuck, drawingPlan, tuckLine } from '../lib/tuck.js'
 import { applyAdjust, cleanAdjust, gestureAdjust, isAdjusted, pickGarment } from '../lib/adjust.js'
 
 const OUTFIT_KEY = 'dollOutfit' // ids of what the doll is wearing
@@ -47,7 +48,8 @@ export async function dollScreen(root) {
   let drawVersion = 0
   async function drawClothes(geo, quality) {
     const version = ++drawVersion
-    const drawn = sortForDrawing(outfit)
+    const plan = drawingPlan(outfit) // bottom of the pile first; tucked tops go under the bottom
+    const drawn = plan.map((p) => p.item)
     const loaded = await Promise.all(drawn.map(picture))
     if (version !== drawVersion) return
     const scale = pixelsPerUnit(quality)
@@ -60,20 +62,33 @@ export async function dollScreen(root) {
       if (!mesh) {
         pic.pixels().then((p) => { pic.pixelData = p }) // for picking by tap
         return {
-          item, base, box, alphaAt: (u, v) => alphaIn(pic.pixelData, u, v),
+          item, base, placedBox: box, fit: pic.fit, box, alphaAt: (u, v) => alphaIn(pic.pixelData, u, v),
           node: svg('image', { href: pic.url, ...box, preserveAspectRatio: 'none', 'data-id': item.id }),
         }
       }
       const done = await bentPicture(item, pic, mesh, scale)
       return done && {
-        item, base, box: done.box, alphaAt: (u, v) => alphaIn(done.alpha, u, v),
+        item, base, placedBox: box, fit: pic.fit, box: done.box, alphaAt: (u, v) => alphaIn(done.alpha, u, v),
         node: svg('image', { href: done.url, ...done.box, preserveAspectRatio: 'none', 'data-id': item.id, 'data-fitting': 'bent' }),
       }
     }))
     // Slider input / wardrobe taps can finish out of order while images load.
     if (version !== drawVersion) return
     garments = placed.filter(Boolean).map((g) => ({ ...g, id: g.item.id }))
-    clothes.replaceChildren(...garments.map((g) => g.node))
+    // Tucked tops: cut off just inside the waistband of the bottom they go into.
+    const defs = svg('defs')
+    plan.forEach(({ item, tuckedInto }) => {
+      const top = garments.find((g) => g.id === item.id)
+      const bottom = tuckedInto && garments.find((g) => g.id === tuckedInto)
+      if (!top || !bottom) return
+      const line = tuckLine(bottom.placedBox, bottom.fit)
+      const id = `tuck-${item.id}`
+      defs.append(svg('clipPath', { id }, svg('rect', { x: -2000, y: -2000, width: 5000, height: line + 2000 })))
+      top.node = svg('g', { 'clip-path': `url(#${id})`, 'data-tucked': item.id }, top.node)
+      const solid = top.alphaAt
+      top.alphaAt = (u, v) => (top.box.y + v * top.box.height > line ? 0 : solid(u, v))
+    })
+    clothes.replaceChildren(defs, ...garments.map((g) => g.node))
     drawMarks()
   }
 
@@ -242,6 +257,13 @@ export async function dollScreen(root) {
     bar.replaceChildren(
       h('p', { class: 'hint' }, `Adjusting ${name}: drag to move, pinch to resize.`),
       h('div', { class: 'row' },
+        canTuck(item) ? h('button', { type: 'button', class: 'small', onclick: async () => {
+          if (item.dollTucked) delete item.dollTucked
+          else item.dollTucked = true
+          await saveItem(item)
+          renderBar()
+          requestRedraw('sharp')
+        } }, item.dollTucked ? 'Untuck' : 'Tuck in') : null,
         h('button', { type: 'button', class: 'small', disabled: !isAdjusted(item.dollAdjust), onclick: async () => {
           delete item.dollAdjust
           await saveItem(item)
