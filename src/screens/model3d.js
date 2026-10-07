@@ -79,9 +79,10 @@ export async function model3dScreen(root, { signal } = {}) {
     if (stopped || selected !== item) return
     const current = garmentOptions(item, loaded.fit, options[item.id] || (item.example && item.category === 'top' ? { style: 'long' } : {}))
     const persist = (key, value) => {
-      options = { ...options, [item.id]: { ...current, ...options[item.id], [key]: value } }
+      options = { ...options, [item.id]: { ...options[item.id], [key]: value } }
       setSetting(OPTIONS_KEY, options)
       redraw()
+      if (key === 'style') renderAdjustments()
     }
     const choose = (label, key, values) => h('label', { class: 'field' }, h('span', { class: 'label' }, label),
       h('select', { 'aria-label': label, onchange: (event) => persist(key, event.target.value) },

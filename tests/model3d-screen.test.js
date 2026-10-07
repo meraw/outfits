@@ -40,7 +40,9 @@ describe('3D studio wardrobe and lifecycle', () => {
     styles[0].value = 'shirt'
     styles[0].dispatchEvent(new Event('change'))
     await settle()
-    expect(mocks.setSetting).toHaveBeenCalledWith('model3dGarments', expect.objectContaining({ 'example-top': expect.objectContaining({ style: 'shirt' }) }))
+    expect(mocks.setSetting).toHaveBeenCalledWith('model3dGarments', { 'example-top': { style: 'shirt' } })
+    expect(root.querySelectorAll('select')[1].value).toBe('hip')
+    expect(view.update.mock.lastCall[1][0].options.ease).toBe(1.14)
     click('Take everything off')
     await settle()
     expect(view.update.mock.lastCall[1]).toEqual([])

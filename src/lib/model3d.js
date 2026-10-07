@@ -1,10 +1,11 @@
 import * as THREE from 'three'
+import { trousersGeometry } from './trousers3d.js'
 import { DEFAULT_SHAPE, SHAPE_MIN, SHAPE_MAX } from './doll.js'
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
-export const TOP_STYLES = [['tee', 'T-shirt'], ['long', 'Long sleeves'], ['shirt', 'Shirt']]
+export const TOP_STYLES = [['tee', 'T-shirt'], ['long', 'Long sleeves'], ['shirt', 'Button-up shirt']]
 export const TOP_LENGTHS = [['cropped', 'Cropped'], ['waist', 'Waist'], ['hip', 'Hip']]
-export const LEG_STYLES = [['straight', 'Straight'], ['wide', 'Wide leg']]
+export const LEG_STYLES = [['straight', 'Straight'], ['wide', 'Wide leg'], ['barrel', 'Barrel leg']]
 export const LEG_LENGTHS = [['short', 'Short'], ['calf', 'Calf'], ['ankle', 'Ankle'], ['floor', 'Floor']]
 
 export function modelDimensions(shape = {}) {
@@ -27,19 +28,23 @@ export function garmentOptions(item, fit, saved = {}) {
   const styles = top ? TOP_STYLES : LEG_STYLES, lengths = top ? TOP_LENGTHS : LEG_LENGTHS
   if (styles.some(([key]) => key === saved.style)) options.style = saved.style
   if (lengths.some(([key]) => key === saved.length)) options.length = saved.length
+  if (top && options.style === 'shirt') {
+    if (!lengths.some(([key]) => key === saved.length)) options.length = 'hip'
+    options.ease = 1.14
+  }
   options.ease = clamp(Number(saved.ease) || options.ease, 1.02, 1.3)
   return options
 }
 
 // Elliptical rings with separate front/back materials. Front UVs use a planar
 // projection so graphics stay centred instead of wrapping twice around a tube.
-export function loftGeometry(rings, segments = 32, uvRange = [0, 1]) {
+export function loftGeometry(rings, segments = 32, uvRange = [0, 1], sectionPower = 1) {
   const positions = [], uvs = [], indices = []
   const firstY = rings[0][1], lastY = rings.at(-1)[1]
   for (const [cx, y, rx, rz] of rings) {
     for (let i = 0; i <= segments; i++) {
       const angle = -Math.PI / 2 + i / segments * Math.PI * 2
-      positions.push(cx + rx * Math.sin(angle), y, rz * Math.cos(angle))
+      positions.push(cx + rx * Math.sin(angle), y, rz * Math.sign(Math.cos(angle)) * Math.abs(Math.cos(angle)) ** sectionPower)
       const front = i <= segments / 2
       const u = front ? (Math.sin(angle) + 1) / 2 : (1 - Math.sin(angle)) / 2
       const t = (y - firstY) / (lastY - firstY)
@@ -124,22 +129,27 @@ export function buildMannequin(shape = {}) {
 export function buildGarment(item, options, shape = {}, maps = {}) {
   const d = modelDimensions(shape), group = new THREE.Group()
   const colour = /^#[0-9a-f]{6}$/i.test(item.colour?.hex ?? '') ? item.colour.hex : item.category === 'top' ? '#b86b4d' : '#435164'
-  const front = material(maps.front ? '#ffffff' : colour, { map: maps.front || null, side: THREE.DoubleSide })
+  const frontMap = options.style === 'shirt' ? maps.shirtFront || maps.front : maps.front
+  const front = material(frontMap ? '#ffffff' : colour, { map: frontMap || null, side: THREE.DoubleSide })
   const fabric = material(maps.fabric ? '#ffffff' : colour, { map: maps.fabric || null, side: THREE.DoubleSide })
   const ease = options.ease
   if (item.category === 'top') {
     const hem = options.length === 'cropped' ? d.waist + 0.09 : options.length === 'hip' ? d.hip - 0.01 : d.waist + 0.015
-    const halfHem = hem < d.waist ? d.hips * ease : d.waistWidth * ease
+    const shirt = options.style === 'shirt'
+    const lowerEase = clamp(Number(options.lowerEase) || 1.08, 1.02, 1.3)
+    const relaxedWaist = Math.max(Math.max(d.bust * 0.98, d.waistWidth * 1.06) * ease, d.hips * 0.97 * lowerEase + 0.008)
+    const shirtDepth = Math.max(0.16 * ease, 0.145 * lowerEase + 0.014)
+    const halfHem = hem < d.waist ? Math.max(d.hips * ease, shirt ? Math.max(relaxedWaist, d.hips * lowerEase + 0.01) : 0) : shirt ? relaxedWaist : d.waistWidth * ease
     const rings = [
       [0, d.shoulder + 0.025, 0.08, 0.065],
       [0, d.shoulder - 0.012, d.shoulders * ease, 0.105 * ease],
       [0, d.shoulder - 0.085, d.bust * ease, 0.133 * ease],
-      [0, Math.max(hem, d.waist + 0.1), d.waistWidth * ease * 1.12, 0.108 * ease],
-      [0, hem, halfHem, 0.105 * ease],
+      [0, Math.max(hem, d.waist + 0.1), shirt ? relaxedWaist : d.waistWidth * ease * 1.12, shirt ? shirtDepth : 0.108 * ease],
+      [0, hem, halfHem, shirt ? shirtDepth : 0.105 * ease],
     ]
     // Cropped hems can coincide with the penultimate ring.
     const unique = rings.filter((r, i) => !i || r[1] < rings[i - 1][1] - 0.001)
-    group.add(mesh(loftGeometry(unique), [front, fabric]))
+    group.add(mesh(loftGeometry(unique, 32, [0, 1], shirt ? 0.5 : 1), [front, fabric]))
     for (const side of [-1, 1]) {
       const a = [side * d.shoulders * 0.91, d.shoulder - 0.018, 0]
       const elbow = [side * (d.shoulders + 0.045), d.shoulder - 0.23 * d.s.torso, 0.015]
@@ -153,15 +163,29 @@ export function buildGarment(item, options, shape = {}, maps = {}) {
       }
     }
     if (options.style === 'shirt') {
-      // A simple collar and placket distinguish the shirt template.
+      // Folded collar leaves sit above a collar stand, rather than flat boxes.
+      const stand = mesh(new THREE.CylinderGeometry(0.064, 0.082, 0.04, 32, 1, true), fabric)
+      stand.position.y = d.shoulder + 0.043
+      group.add(stand)
       for (const side of [-1, 1]) {
-        const collar = mesh(new THREE.BoxGeometry(0.075, 0.07, 0.015), fabric)
-        collar.position.set(side * 0.048, d.shoulder + 0.014, 0.068)
-        collar.rotation.z = side * 0.38
-        group.add(collar)
+        const geometry = new THREE.BufferGeometry()
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+          side * 0.009, d.shoulder + 0.065, 0.073,
+          side * 0.093, d.shoulder + 0.028, 0.087,
+          side * 0.049, d.shoulder - 0.052, 0.15 * ease + 0.014,
+        ], 3))
+        geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 1, 1, 0.5, 0], 2))
+        geometry.setIndex(side > 0 ? [0, 2, 1] : [0, 1, 2])
+        geometry.computeVertexNormals()
+        group.add(mesh(geometry, fabric))
+        const wrist = [side * (d.shoulders + 0.085), d.shoulder - 0.415 * d.s.torso, 0.025]
+        const cuffTop = [wrist[0] - side * 0.006, wrist[1] + 0.035, wrist[2] - 0.002]
+        limb(group, cuffTop, wrist, 0.045 * ease, 0.045 * ease, fabric)
       }
-      const button = material('#e8dfd1')
-      for (let y = d.shoulder - 0.08; y > hem + 0.03; y -= 0.07) {
+      const button = !frontMap ? material('#e8dfd1') : null
+      // A real photo already supplies the placket and buttons. Do not add a
+      // second row on top of them; examples get procedural buttons instead.
+      for (let y = d.shoulder - 0.08; !frontMap && y > hem + 0.03; y -= 0.07) {
         const row = unique.findIndex((r, i) => i && y <= unique[i - 1][1] && y >= r[1])
         const above = unique[row - 1], below = unique[row]
         const fraction = (above[1] - y) / (above[1] - below[1])
@@ -170,23 +194,7 @@ export function buildGarment(item, options, shape = {}, maps = {}) {
       }
     }
   } else if (item.category === 'bottom') {
-    const wide = options.style === 'wide'
-    const end = { short: d.crotch - 0.13, calf: 0.3 * d.s.legs, ankle: 0.12, floor: 0.06 }[options.length]
-    group.add(mesh(loftGeometry([
-      [0, d.waist + 0.01, Math.max(d.waistWidth, d.hips * 0.84) * ease, 0.112 * ease],
-      [0, d.hip, d.hips * ease, 0.14 * ease],
-      [0, d.crotch + 0.025, d.hips * ease * 0.93, 0.123 * ease],
-      [0, d.crotch - 0.035, d.hips * ease * 0.75, 0.112 * ease],
-    ], 32, [0, 0.24]), [front, fabric]))
-    for (const side of [-1, 1]) {
-      const x = side * d.hips * 0.5
-      const radius = wide ? 0.126 * d.s.hips * ease : 0.105 * d.s.hips * ease
-      group.add(mesh(loftGeometry([
-        [x, d.crotch + 0.08, radius, 0.129 * ease],
-        [x, Math.max(end + 0.015, d.crotch - 0.1), radius, 0.12 * ease],
-        [x, end, wide ? radius * 0.95 : 0.068 * ease, wide ? 0.115 * ease : 0.07 * ease],
-      ], 32, [0.2, 1]), [fabric, fabric]))
-    }
+    group.add(mesh(trousersGeometry(d, options), [front, fabric]))
   }
   group.userData.itemId = item.id
   return group
