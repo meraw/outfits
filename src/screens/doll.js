@@ -7,7 +7,7 @@ import {
 } from '../lib/doll.js'
 import { CATEGORY_LABELS } from './item-form.js'
 import { fitFromBlob, validFit } from '../lib/fit.js'
-import { sleeveMesh } from '../lib/garment-mesh.js'
+import { sleeveMesh, legMesh } from '../lib/garment-mesh.js'
 import { warpTriangles } from '../lib/warp.js'
 import { applyAdjust, cleanAdjust, gestureAdjust, isAdjusted, pickGarment } from '../lib/adjust.js'
 
@@ -56,7 +56,7 @@ export async function dollScreen(root) {
       if (!pic) return null
       const base = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength)
       const box = applyAdjust(base, item.dollAdjust) // the hand adjustment, if any
-      const mesh = sleeveMesh(pic.fit, box, geo)
+      const mesh = sleeveMesh(pic.fit, box, geo) ?? legMesh(pic.fit, box, geo)
       if (!mesh) {
         pic.pixels().then((p) => { pic.pixelData = p }) // for picking by tap
         return {
@@ -67,7 +67,7 @@ export async function dollScreen(root) {
       const done = await bentPicture(item, pic, mesh, scale)
       return done && {
         item, base, box: done.box, alphaAt: (u, v) => alphaIn(done.alpha, u, v),
-        node: svg('image', { href: done.url, ...done.box, preserveAspectRatio: 'none', 'data-id': item.id, 'data-fitting': 'sleeves' }),
+        node: svg('image', { href: done.url, ...done.box, preserveAspectRatio: 'none', 'data-id': item.id, 'data-fitting': 'bent' }),
       }
     }))
     // Slider input / wardrobe taps can finish out of order while images load.

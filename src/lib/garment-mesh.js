@@ -111,3 +111,48 @@ export function expandedTriangle(points, overlap = 0.35) {
     return [previous, next].map((n) => p.map((v, axis) => v + n[axis] * overlap))
   })
 }
+
+// Trouser legs: below the crotch each leg slides sideways, more the lower
+// it goes, so legs laid out in a V hang straight down on the doll. Sliding
+// (rather than turning) keeps the hems flat and the legs their own length.
+// Straight down rather than at the doll's ankles: wide legs aimed at the
+// ankles would cross over each other. The waistband stays put.
+const LEG_BLEND = 0.05 // the slide fades in over this share of the height below the crotch
+const MAX_LEG_SLANT = Math.PI / 3
+const SPLIT_STRIP = 0.004 // the two legs part ways in this thin strip, inside the gap
+
+export function legMesh(fit, box) {
+  if (fit?.category !== 'bottom' || !fit.dividedLegs || !fit.legs?.left || !fit.legs?.right) return null
+  const crotch = Math.min(fit.legs.left.top[1], fit.legs.right.top[1])
+  const split = (fit.legs.left.top[0] + fit.legs.right.top[0]) / 2
+  const slides = {}
+  for (const side of ['left', 'right']) {
+    const { top, hem } = fit.legs[side]
+    const across = (hem[0] - top[0]) * box.width, down = (hem[1] - top[1]) * box.height
+    slides[side] = down > 0 && Math.abs(Math.atan2(across, down)) <= MAX_LEG_SLANT ? { top, perRow: across / (hem[1] - top[1]) } : null
+  }
+  if (!slides.left && !slides.right) return null
+  const shift = (p, side) => {
+    const sl = slides[side]
+    if (!sl || p[1] <= sl.top[1]) return 0
+    const t = clamp((p[1] - sl.top[1]) / LEG_BLEND, 0, 1)
+    return -sl.perRow * (p[1] - sl.top[1]) * t * t * (3 - 2 * t)
+  }
+  const destination = (p) => {
+    const q = world(p, box)
+    const dx = Math.abs(p[0] - split) < 1e-9 ? (shift(p, 'left') + shift(p, 'right')) / 2
+      : shift(p, p[0] < split ? 'left' : 'right')
+    return [q[0] + dx, q[1]]
+  }
+  const xs = [...new Set([0, split / 2, split - SPLIT_STRIP, split, split + SPLIT_STRIP, (1 + split) / 2, 1])]
+    .filter((v) => v >= 0 && v <= 1).sort((a, b) => a - b)
+  const band = Array.from({ length: 11 }, (_, i) => crotch + i * LEG_BLEND / 10)
+  const ys = [...new Set([0, crotch, ...band, ...Array.from({ length: 19 }, (_, i) => (i + 1) / 20), 1]
+    .filter((v) => v >= 0 && v <= 1))].sort((a, b) => a - b)
+  const triangles = []
+  for (let x = 0; x < xs.length - 1; x++) for (let y = 0; y < ys.length - 1; y++) {
+    const a = [xs[x], ys[y]], b = [xs[x + 1], ys[y]], c = [xs[x + 1], ys[y + 1]], d = [xs[x], ys[y + 1]]
+    for (const source of [[a, b, c], [a, c, d]]) triangles.push({ source, destination: source.map(destination) })
+  }
+  return triangles
+}
