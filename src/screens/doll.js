@@ -56,7 +56,7 @@ export async function dollScreen(root) {
     const placed = await Promise.all(drawn.map(async (item, index) => {
       const pic = loaded[index]
       if (!pic) return null
-      const base = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength)
+      const base = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength, item.shoeView)
       const box = applyAdjust(base, item.dollAdjust) // the hand adjustment, if any
       const mesh = sleeveMesh(pic.fit, box, geo) ?? legMesh(pic.fit, box, geo)
       if (!mesh) {

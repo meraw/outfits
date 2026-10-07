@@ -58,6 +58,22 @@ describe('placeItem', () => {
     expect(Math.abs(r.y - geo.waist.y)).toBeLessThan(20)
   })
 
+  it('squashes shoes photographed from above so they look seen from the front', () => {
+    // A pair laid side by side, photographed from above: taller than wide.
+    const r = placeItem('shoes', 0.85, geo)
+    const unsquashed = r.width / 0.85
+    expect(r.height).toBeLessThan(unsquashed * 0.5)
+    expect(r.height).toBeGreaterThan(unsquashed * 0.25)
+    expect(r.y + r.height).toBeGreaterThan(geo.feet.y - 10) // still on the floor
+    expect(r.y + r.height).toBeLessThan(geo.feet.y + 15)
+  })
+
+  it('keeps shoes photographed from the side (like boots) unsquashed', () => {
+    const r = placeItem('shoes', 0.85, geo, null, 'auto', 'side')
+    expect(r.width / r.height).toBeCloseTo(0.85)
+    expect(r.y + r.height).toBeGreaterThan(geo.feet.y - 10)
+  })
+
   it('stands shoes on the floor', () => {
     const r = placeItem('shoes', 2, geo)
     expect(r.y + r.height).toBeGreaterThan(geo.feet.y - 10)
