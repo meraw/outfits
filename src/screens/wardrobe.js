@@ -22,7 +22,8 @@ export async function wardrobeScreen(root) {
   root.replaceChildren(
     h('header', { class: 'bar' },
       h('h1', {}, 'Wardrobe'),
-      h('span', { class: 'muted' }, items.length === 1 ? '1 item' : `${items.length} items`)),
+      h('span', { class: 'muted' }, items.length === 1 ? '1 item' : `${items.length} items`),
+      h('a', { href: '#/backup', class: 'pill' }, 'Backup')),
     items.length
       ? grid
       : h('p', { class: 'empty' }, 'No clothes yet. Tap + to photograph your first item.'),

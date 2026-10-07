@@ -19,6 +19,7 @@
   "homepage": "https://github.com/meraw/outfits#readme",
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
+    "fflate": "^0.8.3",
     "idb": "^8.0.4"
   },
   "devDependencies": {

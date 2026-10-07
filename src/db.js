@@ -50,6 +50,18 @@ export async function getImages(id) {
   return (await dbPromise).get('images', id)
 }
 
+// Restoring a backup: writes items exactly as given (dates untouched),
+// all in one go, so a failure halfway leaves nothing half-restored.
+export async function putItemsWithImages(entries) {
+  const db = await dbPromise
+  const tx = db.transaction(['items', 'images'], 'readwrite')
+  for (const { item, images } of entries) {
+    tx.objectStore('items').put(item)
+    tx.objectStore('images').put({ itemId: item.id, ...images })
+  }
+  await tx.done
+}
+
 export async function deleteItem(id) {
   const db = await dbPromise
   const tx = db.transaction(['items', 'images'], 'readwrite')
