@@ -136,6 +136,7 @@ export async function model3dScreen(root, { signal } = {}) {
   root.replaceChildren(
     h('header', { class: 'bar' }, h('a', { href: '#/doll', class: 'back', 'aria-label': 'Back to doll' }, '‹'),
       h('h1', {}, '3D studio'), h('span', { class: 'badge' }, 'Preview')),
+    h('div', { class: 'row model-link' }, h('a', { href: '#/3d-sample', class: 'pill' }, 'Try the modelled sample')),
     h('p', { class: 'model-intro' }, 'Your clothes, adapted to a 3D mannequin. Drag to turn it; pinch to zoom.'),
     h('div', { class: 'doll-layout' },
       h('div', { class: 'model-view' }, stage,

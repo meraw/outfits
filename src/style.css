@@ -255,3 +255,7 @@ textarea { resize: vertical; width: 100%; }
   .model-view { position: sticky; top: 76px; align-self: start; }
   .model-stage { height: calc(100dvh - 160px); min-height: 300px; }
 }
+
+/* The first authored garment sample, evaluated separately from the wardrobe. */
+.modelled-stage { height: 66vh; min-height: 360px; }
+.modelled-garments { margin-top: 14px; }
