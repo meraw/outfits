@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dominantColour, nameColour } from '../src/lib/colour.js'
+import { dominantColour, nameColour, COLOUR_NAMES } from '../src/lib/colour.js'
 
 // Builds RGBA pixel data from a list of [r, g, b, a, count] runs.
 function pixels(runs) {
@@ -47,8 +47,38 @@ describe('nameColour', () => {
     '#f2d03b': 'yellow',
     '#e8772e': 'orange',
     '#6a3d9a': 'purple',
+    // Added after the owner's orange item didn't find a good match.
+    '#36393f': 'charcoal',
+    '#f4ebd3': 'cream',
+    '#c09060': 'camel',
+    '#b04a25': 'rust',
+    '#f4806c': 'coral',
+    '#e0338a': 'hot pink',
+    '#f8c8a4': 'peach',
+    '#ff8c1a': 'orange',
+    '#d6a62a': 'mustard',
+    '#a89c6a': 'khaki',
+    '#9caf88': 'sage',
+    '#a8e0c4': 'mint',
+    '#1e4a2c': 'forest green',
+    '#1b7676': 'teal',
+    '#3cc8c4': 'turquoise',
+    '#c8a2d0': 'lilac',
   }
   for (const [hex, name] of Object.entries(cases)) {
     it(`${hex} is ${name}`, () => expect(nameColour(hex)).toBe(name))
   }
+})
+
+describe('colour list', () => {
+  it('offers the colours grouped by family', () => {
+    expect(COLOUR_NAMES).toEqual([
+      'black', 'charcoal', 'grey', 'white', 'cream', 'beige', 'camel', 'brown',
+      'red', 'burgundy', 'rust', 'coral', 'pink', 'hot pink', 'peach',
+      'orange', 'mustard', 'yellow',
+      'khaki', 'olive', 'sage', 'mint', 'green', 'forest green', 'teal',
+      'turquoise', 'light blue', 'blue', 'navy',
+      'lilac', 'purple',
+    ])
+  })
 })

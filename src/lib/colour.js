@@ -20,22 +20,43 @@ export function dominantColour(rgba) {
 
 // Reference shades for each name. The closest one (by how the eye sees
 // difference, not raw numbers) wins.
+// Listed by family; this is also the order of the dropdown.
 const PALETTE = {
   black: '#1a1a1a',
-  white: '#f5f5f2',
+  charcoal: '#3d4046',
   grey: '#9e9e9e',
-  beige: '#cdb894',
-  brown: '#7a4b2a',
+  white: '#f5f5f2',
+  cream: '#efe4c8',
+  beige: '#d4bf9a',
+  camel: '#b98a55',
+  brown: '#6e4428',
+
   red: '#c0232f',
   burgundy: '#74202f',
+  rust: '#a64b28',
+  coral: '#f07a65',
   pink: '#f0a3bd',
-  orange: '#e57a2c',
-  yellow: '#edc932',
-  olive: '#707035',
+  'hot pink': '#dd2f86',
+  peach: '#f7c4a0',
+
+  orange: '#e8781e',
+  mustard: '#cfa128',
+  yellow: '#f0d03a',
+
+  khaki: '#a69a68',
+  olive: '#6a6a30',
+  sage: '#9bb08a',
+  mint: '#a6dcc0',
   green: '#3a8a40',
+  'forest green': '#234d2f',
+  teal: '#1f7b7b',
+
+  turquoise: '#40c4c0',
   'light blue': '#9dc0e3',
   blue: '#3366b0',
   navy: '#22305a',
+
+  lilac: '#c3a3cf',
   purple: '#70409a',
 }
 export const COLOUR_NAMES = Object.keys(PALETTE)
