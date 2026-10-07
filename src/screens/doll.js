@@ -6,6 +6,7 @@ import {
   dollGeometry, placeItem, wearItem, sortForDrawing,
 } from '../lib/doll.js'
 import { CATEGORY_LABELS } from './item-form.js'
+import { fitFromBlob, validFit } from '../lib/fit.js'
 
 const OUTFIT_KEY = 'dollOutfit' // ids of what the doll is wearing
 
@@ -13,7 +14,7 @@ export async function dollScreen(root) {
   const items = await listItems()
   let shape = { ...DEFAULT_SHAPE, ...(await getSetting('dollShape', DEFAULT_SHAPE)) }
   let outfit = loadOutfit().map((id) => items.find((i) => i.id === id)).filter(Boolean)
-  const pictures = new Map() // id → { url, aspect }
+  const pictures = new Map() // id → { url, aspect, fit }; also deduplicates in-flight reads
   const thumbs = new Map() // id → thumbnail url
 
   // The drawing
@@ -33,23 +34,34 @@ export async function dollScreen(root) {
     )
   }
 
+  let drawVersion = 0
   async function drawClothes(geo) {
-    for (const item of outfit) await picture(item)
-    clothes.replaceChildren(...sortForDrawing(outfit).map((item) => {
-      const pic = pictures.get(item.id)
-      if (!pic) return null
-      const r = placeItem(item.category, pic.aspect, geo)
+    const version = ++drawVersion
+    const drawn = sortForDrawing(outfit)
+    const loaded = await Promise.all(drawn.map(picture))
+    // Slider input / wardrobe taps can finish out of order while images load.
+    if (version !== drawVersion) return
+    clothes.replaceChildren(...drawn.flatMap((item, index) => {
+      const pic = loaded[index]
+      if (!pic) return []
+      const r = placeItem(item.category, pic.aspect, geo, pic.fit)
       return svg('image', { href: pic.url, x: r.x, y: r.y, width: r.width, height: r.height, 'data-id': item.id })
     }))
   }
 
-  async function picture(item) {
-    if (pictures.has(item.id)) return
-    const images = await getImages(item.id)
-    if (!images?.cutout) return
-    const bmp = await createImageBitmap(images.cutout)
-    pictures.set(item.id, { url: blobUrl(images.cutout), aspect: bmp.width / bmp.height })
-    bmp.close()
+  function picture(item) {
+    if (!pictures.has(item.id)) pictures.set(item.id, (async () => {
+      const images = await getImages(item.id)
+      if (!images?.cutout) return null
+      const bmp = await createImageBitmap(images.cutout)
+      const aspect = bmp.width / bmp.height
+      bmp.close()
+      // Old wardrobe items get fitted lazily, once per screen visit. Avoid
+      // rewriting their tags/dates or eagerly scanning hundreds of photos.
+      const fit = validFit(item.fit, item.category) ? item.fit : await fitFromBlob(images.cutout, item.category)
+      return { url: blobUrl(images.cutout), aspect, fit }
+    })())
+    return pictures.get(item.id)
   }
 
   async function redraw() {

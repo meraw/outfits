@@ -1,6 +1,7 @@
 // The paper doll: body shape, where clothes go on it, and what can be worn
 // together. Everything is in "doll units": a 400 × 860 drawing starting
 // just above the head (y = 30), with room for the longest legs.
+import { validFit } from './fit.js'
 
 export const DOLL_WIDTH = 400
 export const DOLL_TOP = 30
@@ -66,13 +67,21 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
     hips: { y: 428, half: hip },
     ankles: { y: ankleY },
     feet: { y: floorY, half: footX },
+    landmarks: {
+      leftShoulder: [CX - sh, 192], rightShoulder: [CX + sh, 192],
+      leftWaist: [CX - waist, 340], rightWaist: [CX + waist, 340],
+      leftHip: [CX - hip, 428], rightHip: [CX + hip, 428],
+      leftKnee: [CX - legX, kneeY], rightKnee: [CX + legX, kneeY],
+      leftAnkle: [CX - footX, ankleY], rightAnkle: [CX + footX, ankleY],
+    },
   }
 }
 
 // Where an item's picture goes on the doll before any hand adjustment.
 // aspect = picture width ÷ height. Returns a box in doll units.
-export function placeItem(category, aspect, geo) {
-  aspect = aspect > 0 ? aspect : 1
+export function placeItem(category, aspect, geo, fit = null) {
+  aspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1
+  if (validFit(fit, category)) return placeFittedItem(category, aspect, geo, fit)
   let width, top
   switch (category) {
     case 'outerwear':
@@ -111,6 +120,29 @@ export function placeItem(category, aspect, geo) {
     }
   }
   return { x: geo.centre - width / 2, y: top, width, height: width / aspect }
+}
+
+function placeFittedItem(category, aspect, geo, fit) {
+  const { anchor, bounds } = fit
+  const bottom = category === 'bottom'
+  // A rigid picture cannot match bust, waist and hips independently. Fit its
+  // torso span to the shoulders/bust, or waistband to the upper pelvis.
+  const targetSpan = bottom ? Math.max(geo.waist.half * 2 * 1.08, geo.hips.half * 2 * 0.88)
+    : Math.max(geo.shoulders.half * 2 * 1.02, 128 * geo.shape.bust * 1.08) * (category === 'outerwear' ? 1.12 : 1)
+  let width = targetSpan / (anchor.right - anchor.left)
+  const targetY = bottom ? geo.waist.y - 8 : geo.shoulders.y
+  if (bottom && fit.dividedLegs === true && bounds.width * aspect / bounds.height < 0.6) {
+    // For long trousers, use leg length as a bounded correction to waist fit.
+    // Shorts/skirts keep their relative length; never stretch the PNG.
+    const desired = (geo.ankles.y + 10 - targetY) * aspect / (bounds.y + bounds.height - anchor.y)
+    width = Math.max(width * 0.8, Math.min(width * 1.25, desired))
+  }
+  const height = width / aspect
+  return {
+    x: geo.centre - (anchor.left + anchor.right) / 2 * width,
+    y: targetY - anchor.y * height,
+    width, height,
+  }
 }
 
 // Which "place" on the body an item takes. Two items can't share a place.
