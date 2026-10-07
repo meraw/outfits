@@ -2,6 +2,7 @@
 import { trimBounds } from './trim.js'
 import { rotatePixels } from './rotate.js'
 import { dominantColour, nameColour } from './colour.js'
+import { clearBackgroundGaps } from './gaps.js'
 
 const MAX_SIDE = 1600
 const THUMB_SIDE = 360
@@ -13,7 +14,7 @@ export async function processPhoto(file, onStatus = () => {}) {
   let cutout = null
   try {
     const raw = await removeBackground(original, onStatus)
-    cutout = await trim(raw)
+    cutout = await trim(raw, original)
   } catch (err) {
     console.error('Background removal failed', err)
   }
@@ -95,14 +96,24 @@ async function shrink(blob, maxSide, type, quality) {
   return toBlob(c, type, quality)
 }
 
-// Crops away the empty space around the item, leaving a small margin.
-async function trim(blob) {
+// Clears floor the remover left inside the outline (like the gap between
+// trouser legs), then crops away the empty space, leaving a small margin.
+async function trim(blob, original) {
   const img = await load(blob)
   const c = canvas(img.width, img.height)
-  const ctx = c.getContext('2d')
+  const ctx = c.getContext('2d', { willReadFrequently: true })
   ctx.drawImage(img, 0, 0)
   img.close()
-  const box = trimBounds(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height)
+  const pixels = ctx.getImageData(0, 0, c.width, c.height)
+  const photo = await load(original)
+  if (photo.width === c.width && photo.height === c.height) {
+    const p = canvas(c.width, c.height).getContext('2d', { willReadFrequently: true })
+    p.drawImage(photo, 0, 0)
+    clearBackgroundGaps(pixels.data, p.getImageData(0, 0, c.width, c.height).data, c.width, c.height)
+    ctx.putImageData(pixels, 0, 0)
+  }
+  photo.close()
+  const box = trimBounds(pixels.data, c.width, c.height)
   if (!box) throw new Error('Nothing left after removing the background')
   const pad = Math.round(Math.max(box.w, box.h) * 0.02)
   const x = Math.max(0, box.x - pad), y = Math.max(0, box.y - pad)
