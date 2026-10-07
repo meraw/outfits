@@ -88,7 +88,12 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
 
 // Where an item's picture goes on the doll before any hand adjustment.
 // aspect = picture width ÷ height. Returns a box in doll units.
-export function placeItem(category, aspect, geo, fit = null, hemLength = 'auto') {
+// Shoes are usually photographed from above, which looks wrong on a doll
+// seen from the front: squash them to about this share of their height.
+// Boots photographed lying on their side (shoeView 'side') stay as they are.
+const SHOE_SQUASH = 0.38
+
+export function placeItem(category, aspect, geo, fit = null, hemLength = 'auto', shoeView = 'above') {
   aspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1
   if (validFit(fit, category)) return placeFittedItem(category, aspect, geo, fit, hemLength)
   let width, top
@@ -119,7 +124,7 @@ export function placeItem(category, aspect, geo, fit = null, hemLength = 'auto')
     }
     case 'shoes': {
       width = (geo.feet.half * 2 + 44) * 1.3
-      const height = width / aspect
+      const height = width / aspect * (shoeView === 'side' ? 1 : SHOE_SQUASH)
       return { x: geo.centre - width / 2, y: geo.feet.y + 6 - height, width, height }
     }
     default: { // accessory: hangs by the hip

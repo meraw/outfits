@@ -50,6 +50,15 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
       h('span', { class: 'hint' }, 'Only change this if the automatic length looks wrong.'))
   }
   renderHem()
+  // Shoes: how they were photographed decides how they're drawn on the doll.
+  const shoeField = h('div', { class: 'field' })
+  const renderShoe = () => {
+    shoeField.hidden = item.category !== 'shoes'
+    shoeField.replaceChildren(h('div', { class: 'label' }, 'Shoe photo'),
+      chips([['above', 'From above'], ['side', 'From the side']], item.shoeView ?? 'above', (value) => { item.shoeView = value }),
+      h('span', { class: 'hint' }, 'Choose "From the side" for boots photographed lying on their side.'))
+  }
+  renderShoe()
   const renderLayer = () => {
     const wanted = item.category in DEFAULT_LAYER
     if (!wanted) item.layer = null
@@ -65,6 +74,7 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
     err.textContent = ''
     renderLayer()
     renderHem()
+    renderShoe()
   })
 
   // Colour: detected automatically; tap a square to choose another.
@@ -122,6 +132,7 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
     field('Category', categoryChips),
     layerField,
     hemField,
+    shoeField,
     field('Warmth', chips([1, 2, 3, 4, 5].map((n) => [n, String(n)]), item.warmth, (v) => { item.warmth = v }),
       h('span', { class: 'hint' }, '1 = very light, 5 = very warm')),
     field('Colour', current, squares),
