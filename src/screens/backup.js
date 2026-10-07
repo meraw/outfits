@@ -34,19 +34,8 @@ export async function backupScreen(root) {
     say(`Saved ${file.name} (${mb(file.size)}) to your Downloads.`)
   } }, 'Save backup')
 
-  // On Android this opens the share sheet, so the file can go straight to
-  // Google Drive, email, etc.
-  const canShare = !!navigator.canShare?.({ files: [new File([''], 'x.zip', { type: 'application/zip' })] })
-  const share = canShare ? h('button', { class: 'big', disabled: count === 0, onclick: async () => {
-    const file = await build()
-    try {
-      await navigator.share({ files: [file], title: 'Outfits backup' })
-      remember()
-      say('Backup sent.')
-    } catch (err) {
-      say(err?.name === 'AbortError' ? '' : 'Sharing didn\'t work. Use "Save backup" instead.', err?.name !== 'AbortError')
-    }
-  } }, 'Send backup to…') : null
+  // No "share" button: Chrome on Android won't share .zip files from a web
+  // page, so the backup goes to Downloads and is uploaded to Drive from there.
 
   const picker = h('input', { type: 'file', accept: '.zip,application/zip', hidden: true, onchange: async () => {
     const file = picker.files?.[0]
@@ -70,8 +59,9 @@ export async function backupScreen(root) {
       h('p', {}, 'Your clothes and photos are stored only on this phone. Save a backup now and then, and keep the file somewhere safe, like Google Drive or an email to yourself.'),
       last,
       save,
-      share,
-      count === 0 ? h('p', { class: 'muted' }, 'Nothing to back up yet.') : null,
+      count === 0
+        ? h('p', { class: 'muted' }, 'Nothing to back up yet.')
+        : h('p', { class: 'muted' }, 'To keep it safe in Google Drive: open the Drive app, tap +, then Upload, and pick the file from Downloads.'),
       h('hr'),
       h('h2', {}, 'Restore'),
       h('p', { class: 'muted' }, 'Bring back clothes from a backup file, for example on a new phone.'),
