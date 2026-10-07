@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import * as THREE from 'three'
 import { modelDimensions, garmentOptions, loftGeometry, buildMannequin, buildGarment, disposeModel } from '../src/lib/model3d.js'
-import { textureRegions } from '../src/lib/texture3d.js'
+import { trousersGeometry } from '../src/lib/trousers3d.js'
+import { textureRegions, silhouetteSpans } from '../src/lib/texture3d.js'
 
 const top = { id: 'top', category: 'top' }, bottom = { id: 'bottom', category: 'bottom' }
 const boundsOf = (model) => new THREE.Box3().setFromObject(model)
@@ -25,7 +26,7 @@ describe('3D mannequin and garment templates', () => {
   it('generates finite, nondegenerate surfaces and UVs with outward front normals', () => {
     const models = [buildMannequin(), ...['tee', 'long', 'shirt'].flatMap((style) =>
       ['cropped', 'waist', 'hip'].map((length) => buildGarment(top, { style, length, ease: 1.08 }))),
-    ...['wide', 'straight'].flatMap((style) => ['short', 'calf', 'ankle', 'floor'].map((length) =>
+    ...['wide', 'straight', 'barrel'].flatMap((style) => ['short', 'calf', 'ankle', 'floor'].map((length) =>
       buildGarment(bottom, { style, length, ease: 1.08 })))]
     for (const model of models) {
       model.traverse((obj) => {
@@ -67,6 +68,75 @@ describe('3D mannequin and garment templates', () => {
       }
       disposeModel(body); disposeModel(shirt); disposeModel(pants)
     }
+  })
+
+  it('maps the entire waistband photo onto one continuous trouser surface', () => {
+    const d = modelDimensions(), geometry = trousersGeometry(d, { style: 'barrel', length: 'floor', ease: 1.08 })
+    const uv = geometry.getAttribute('uv'), front = geometry.groups[0], index = geometry.getIndex()
+    const samples = []
+    for (let i = front.start; i < front.start + front.count; i++) samples.push(uv.getY(index.getX(i)))
+    expect(Math.min(...samples)).toBeCloseTo(0)
+    expect(Math.max(...samples)).toBeCloseTo(1)
+    const pants = buildGarment(bottom, { style: 'barrel', length: 'floor', ease: 1.08 })
+    expect(pants.children).toHaveLength(1)
+    pants.updateMatrixWorld(true)
+    for (const y of [d.waist, d.hip, d.crotch + 0.01]) {
+      const hits = new THREE.Raycaster(new THREE.Vector3(0.015, y, 2), new THREE.Vector3(0, 0, -1)).intersectObject(pants, true)
+      expect(hits[0].face.normal.z).toBeGreaterThan(0)
+    }
+    disposeModel(pants); geometry.dispose()
+  })
+
+  it('gives barrel trousers volume through the leg and a narrower hem', () => {
+    const g = trousersGeometry(modelDimensions(), { style: 'barrel', length: 'floor', ease: 1.08 })
+    const p = g.getAttribute('position'), widths = new Map()
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i)
+      widths.set(y, Math.max(widths.get(y) || 0, Math.abs(p.getX(i))))
+    }
+    const rows = [...widths].sort((a, b) => a[0] - b[0])
+    expect(rows[1][1]).toBeGreaterThan(rows[0][1] * 1.2)
+    g.dispose()
+  })
+
+  it('gives shirts a relaxed hip-length default and uses a single photographed button row', () => {
+    expect(garmentOptions(top, null, { style: 'shirt' })).toMatchObject({ style: 'shirt', length: 'hip', ease: 1.14 })
+    expect(garmentOptions(top, null, { style: 'shirt', length: 'cropped', ease: 1.03 })).toMatchObject({ length: 'cropped', ease: 1.03 })
+    const photo = new THREE.Texture()
+    const shirt = buildGarment(top, garmentOptions(top, null, { style: 'shirt' }), {}, { front: photo, shirtFront: photo })
+    const buttonSpheres = shirt.children.filter((m) => m.geometry.type === 'SphereGeometry' && m.scale.x < 0.01)
+    expect(buttonSpheres).toHaveLength(0)
+    const knitted = buildGarment(top, garmentOptions(top, null, { style: 'long', length: 'hip' }))
+    const widthAt = (model, y) => {
+      const p = model.children[0].geometry.getAttribute('position')
+      let width = 0
+      for (let i = 0; i < p.count; i++) if (Math.abs(p.getY(i) - y) < 0.001) width = Math.max(width, Math.abs(p.getX(i)))
+      return width
+    }
+    expect(widthAt(shirt, modelDimensions().waist + 0.1)).toBeGreaterThan(widthAt(knitted, modelDimensions().waist + 0.1))
+    disposeModel(shirt); disposeModel(knitted); photo.dispose()
+  })
+
+  it('keeps an untucked button-up in front of loose trousers', () => {
+    const d = modelDimensions()
+    const shirt = buildGarment(top, { style: 'shirt', length: 'hip', ease: 1.02, lowerEase: 1.3 })
+    const pants = buildGarment(bottom, { style: 'barrel', length: 'floor', ease: 1.3 })
+    shirt.updateMatrixWorld(true); pants.updateMatrixWorld(true)
+    for (const [x, y] of [[0, d.hip], [0.14, d.hip], [0, d.waist]]) {
+      const ray = new THREE.Raycaster(new THREE.Vector3(x, y, 2), new THREE.Vector3(0, 0, -1))
+      const topHit = ray.intersectObject(shirt, true)[0], bottomHit = ray.intersectObject(pants, true)[0]
+      expect(topHit).toBeDefined(); expect(bottomHit).toBeDefined()
+      expect(topHit.distance).toBeLessThan(bottomHit.distance)
+    }
+    disposeModel(shirt); disposeModel(pants)
+  })
+
+  it('follows a narrow waistband and broader hips when sampling a flat trouser photo', () => {
+    const data = new Uint8ClampedArray(20 * 3 * 4)
+    for (const [y, l, r] of [[0, 6, 14], [1, 2, 18]]) for (let x = l; x < r; x++) data[(y * 20 + x) * 4 + 3] = 255
+    expect(silhouetteSpans(data, 20, 3)).toEqual([[0.3, 0.7], [0.1, 0.9], null])
+    const regions = textureRegions({ anchor: { left: 0.3, right: 0.7 }, bounds: { x: 0.1, y: 0, width: 0.8, height: 1 } }, 'bottom')
+    expect(regions.front.width).toBeCloseTo(0.8)
   })
 
   it('disposes shared model resources once while preserving cached textures', () => {

@@ -72,7 +72,8 @@ export function createModelView(host, onTurn = () => {}) {
       if (model) { scene.remove(model); disposeModel(model) }
       model = new THREE.Group()
       model.add(buildMannequin(shape))
-      for (const { item, options, maps } of garments) model.add(buildGarment(item, options, shape, maps))
+      const lowerEase = garments.find(({ item }) => item.category === 'bottom')?.options.ease
+      for (const { item, options, maps } of garments) model.add(buildGarment(item, { ...options, lowerEase }, shape, maps))
       scene.add(model)
       const dimensions = modelDimensions(shape)
       height = dimensions.top + 0.2
