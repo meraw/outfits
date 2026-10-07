@@ -67,14 +67,15 @@ describe('automatic silhouette fitting', () => {
     expect(placeItem('bottom', 200 / 140, wide, fit).width).toBeGreaterThan(r.width)
   })
 
-  it('lengthens long trousers with the leg slider without stretching them', () => {
+  it('fits trouser length separately from waistband width', () => {
     const data = mask(160, 440, [[20, 10, 140, 60], [10, 60, 75, 430], [85, 60, 150, 430]])
     const fit = analyseSilhouette(data, 160, 440, 'bottom')
     const r = placeItem('bottom', 160 / 440, geo, fit)
-    expect(r.y + (fit.bounds.y + fit.bounds.height) * r.height).toBeCloseTo(geo.ankles.y + 10)
+    expect(r.y + (fit.bounds.y + fit.bounds.height) * r.height).toBeCloseTo(geo.feet.y - 2)
     const tall = dollGeometry({ legs: 1.2 })
-    expect(placeItem('bottom', 160 / 440, tall, fit).height).toBeGreaterThan(r.height)
-    expect(r.width / r.height).toBeCloseTo(160 / 440)
+    const longer = placeItem('bottom', 160 / 440, tall, fit)
+    expect(longer.height).toBeGreaterThan(r.height)
+    expect(longer.width).toBeCloseTo(r.width)
   })
 
   it('supports dress and outerwear categories', () => {
@@ -91,6 +92,21 @@ describe('automatic silhouette fitting', () => {
     expect(fit.dividedLegs).toBe(false)
     const r = placeItem('bottom', 160 / 440, geo, fit)
     expect(placeItem('bottom', 160 / 440, dollGeometry({ legs: 1.2 }), fit)).toEqual(r)
+  })
+
+  it('recognizes wide jeans as full length and keeps their waistband width', () => {
+    const fit = analyseSilhouette(mask(220, 320, [[40, 10, 180, 80], [15, 80, 100, 310], [120, 80, 205, 310]]), 220, 320, 'bottom')
+    expect(fit.bounds.width * (220 / 320) / fit.bounds.height).toBeGreaterThan(0.6)
+    expect(fit.longLegs).toBe(true)
+    const full = placeItem('bottom', 220 / 320, geo, fit)
+    const ankle = placeItem('bottom', 220 / 320, geo, fit, 'ankle')
+    const calf = placeItem('bottom', 220 / 320, geo, fit, 'calf')
+    expect(full.y + (fit.bounds.y + fit.bounds.height) * full.height).toBeCloseTo(geo.feet.y - 2)
+    expect(ankle.y + (fit.bounds.y + fit.bounds.height) * ankle.height).toBeCloseTo(geo.ankles.y + 2)
+    expect(calf.height).toBeLessThan(ankle.height)
+    expect(full.width).toBeCloseTo(ankle.width)
+    expect(calf.width).toBeCloseTo(full.width)
+    expect(placeItem('bottom', 220 / 320, geo, fit, '__proto__')).toEqual(full)
   })
 
   it('falls back for empty/opaque images, unsupported categories and bad data', () => {
