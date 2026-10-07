@@ -16,6 +16,39 @@ describe('sleeve mesh', () => {
     expect(fit.sleeves.left.cuff[1]).toBeGreaterThan(fit.sleeves.left.pivot[1])
   })
 
+  it('centres sleeve roots between the upper and lower attachment edges', () => {
+    for (const sleeve of Object.values(fit.sleeves)) {
+      expect(sleeve.pivot[1]).toBeCloseTo((sleeve.attachment.top[1] + sleeve.attachment.bottom[1]) / 2)
+      expect(sleeve.attachment.top[1]).toBeLessThan(sleeve.attachment.bottom[1])
+      expect(sleeve.fullLength).toBe(true)
+      expect(sleeve.extentRatio).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it('distinguishes broad long-sleeved shirts from short sleeves', () => {
+    const shirt = (end) => analyseSilhouette(polygonMask(240, 140, [
+      [[80, 15], [120, 8], [160, 15], [160, 125], [80, 125]],
+      [[80, 15], [80, 55], [end, 65], [end, 25]],
+      [[160, 15], [240 - end, 25], [240 - end, 65], [160, 55]],
+    ]), 240, 140, 'top')
+    const long = shirt(10), short = shirt(60)
+    for (const side of ['left', 'right']) {
+      expect(long.sleeves[side].fullLength).toBe(true)
+      expect(short.sleeves[side].fullLength).toBe(false)
+    }
+  })
+
+  it('preserves sleeve cross-section width while bending around the elbow', () => {
+    const horizontal = { ...fit, sleeves: { left: {
+      pivot: [fit.anchor.left, 0.4], cuff: [0.05, 0.4], fullLength: true,
+    } } }
+    const mesh = sleeveMesh(horizontal, box, geo)
+    const vertices = mesh.flatMap((t) => t.source.map((p, i) => ({ p, q: t.destination[i] })))
+    const at = (y) => vertices.find(({ p }) => p[0] === fit.anchor.left / 2 && p[1] === y).q
+    const a = at(0.4), b = at(0.5)
+    expect(Math.hypot(a[0] - b[0], a[1] - b[1])).toBeCloseTo(box.height * 0.1)
+  })
+
   it('keeps every torso vertex in its original position', () => {
     const mesh = sleeveMesh(fit, box, geo)
     let torsoVertices = 0
@@ -77,9 +110,15 @@ describe('sleeve mesh', () => {
   it('overlaps skinny clip triangles along their edges without invalid coordinates', () => {
     const expanded = expandedTriangle([[0, 0], [100, 0], [100, 1]])
     expect(expanded.every((p) => p.every(Number.isFinite))).toBe(true)
-    expect(expanded[0][1]).toBeCloseTo(-0.35)
+    expect(expanded).toHaveLength(6)
+    const original = [[0, 0], [100, 0], [100, 1]]
+    expanded.forEach((p, i) => {
+      const vertex = original[Math.floor(i / 2)]
+      expect(Math.hypot(p[0] - vertex[0], p[1] - vertex[1])).toBeCloseTo(0.35)
+    })
     expect(expanded[1][1]).toBeCloseTo(-0.35)
-    expect(expanded[2][0]).toBeCloseTo(100.35)
+    expect(expanded[3][0]).toBeCloseTo(100.35)
+    expect(expandedTriangle([...original].reverse()).every((p) => p.every(Number.isFinite))).toBe(true)
     const line = [[0, 0], [1, 1], [2, 2]]
     expect(expandedTriangle(line)).toEqual(line)
   })

@@ -79,6 +79,7 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
       leftWaist: [CX - waist, bodyY(340)], rightWaist: [CX + waist, bodyY(340)],
       leftHip: [CX - hip, bodyY(428)], rightHip: [CX + hip, bodyY(428)],
       leftWrist: [CX - sh - 32, 450], rightWrist: [CX + sh + 32, 450],
+      leftElbow: [CX - sh - 14, 328], rightElbow: [CX + sh + 14, 328],
       leftKnee: [CX - legX, kneeY], rightKnee: [CX + legX, kneeY],
       leftAnkle: [CX - footX, ankleY], rightAnkle: [CX + footX, ankleY],
     },

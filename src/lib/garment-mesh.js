@@ -13,20 +13,39 @@ function sleeveTransform(sleeve, side, box, geo, torsoWidth) {
   const target = [wrist[0] - pivot[0], wrist[1] - pivot[1]]
   const length = Math.hypot(...source)
   if (length < 8) return null
+  const extent = length * clamp(Number.isFinite(sleeve.extentRatio) ? sleeve.extentRatio : 1, 1, 1.2)
   const angle = Math.atan2(target[1], target[0]) - Math.atan2(source[1], source[0])
   // Only rotate plausible downward/sideways sleeves. An upside-down garment
   // should be corrected with the existing Rotate button, not silently warped.
   if (Math.abs(angle) > Math.PI * 0.65) return null
-  const stretch = length > torsoWidth * 0.95 ? clamp(Math.hypot(...target) / length, 0.75, 1.5) : 1
+  const elbow = geo.landmarks[side + 'Elbow']
+  const control = [2 * elbow[0] - (pivot[0] + wrist[0]) / 2, 2 * elbow[1] - (pivot[1] + wrist[1]) / 2]
+  const armLength = Math.hypot(elbow[0] - pivot[0], elbow[1] - pivot[1]) + Math.hypot(wrist[0] - elbow[0], wrist[1] - elbow[1])
+  // Short sleeves keep their extent; a plausible long sleeve reaches the wrist.
+  const fraction = sleeve.fullLength === true ? Math.min(1, extent * 2.25 / armLength) : Math.min(1, extent / armLength)
   const ux = source[0] / length, uy = source[1] / length
-  const tx = Math.cos(Math.atan2(target[1], target[0])), ty = Math.sin(Math.atan2(target[1], target[0]))
+  const centreAt = (t) => {
+    if (t < 0 || t > 1) {
+      const atEnd = t > 1, base = atEnd ? wrist : pivot
+      const tangent = atEnd ? [wrist[0] - control[0], wrist[1] - control[1]] : [control[0] - pivot[0], control[1] - pivot[1]]
+      return { centre: base.map((v, axis) => v + (atEnd ? t - 1 : t) * tangent[axis] * 2), tangent }
+    }
+    return {
+      centre: [0, 1].map((axis) => (1 - t) ** 2 * pivot[axis] + 2 * (1 - t) * t * control[axis] + t ** 2 * wrist[axis]),
+      tangent: [0, 1].map((axis) => 2 * (1 - t) * (control[axis] - pivot[axis]) + 2 * t * (wrist[axis] - control[axis])),
+    }
+  }
   return (p) => {
     const q = world(p, box)
     const dx = q[0] - pivot[0], dy = q[1] - pivot[1]
     const along = dx * ux + dy * uy, across = -dx * uy + dy * ux
-    const rotated = [pivot[0] + along * stretch * tx - across * ty, pivot[1] + along * stretch * ty + across * tx]
+    const { centre, tangent } = centreAt(along / extent * fraction)
+    const tangentLength = Math.hypot(...tangent) || 1
+    // Transport the cross-section on a unit normal: bending never scales
+    // sleeve width. Only its centreline length changes for long sleeves.
+    const rotated = [centre[0] - across * tangent[1] / tangentLength, centre[1] + across * tangent[0] / tangentLength]
     const distance = side === 'left' ? pivot[0] - q[0] : q[0] - pivot[0]
-    const t = clamp(distance / (torsoWidth * 0.16), 0, 1)
+    const t = clamp(distance / (torsoWidth * 0.05), 0, 1)
     const blend = t * t * (3 - 2 * t)
     return [q[0] + (rotated[0] - q[0]) * blend, q[1] + (rotated[1] - q[1]) * blend]
   }
@@ -41,18 +60,23 @@ export function sleeveMesh(fit, box, geo) {
   const transforms = Object.fromEntries(['left', 'right'].map((side) => [side,
     sleeveTransform(fit.sleeves[side], side, box, geo, torsoWidth)]))
   if (!transforms.left && !transforms.right) return null
-  const xs = [0, left / 2, left, right, (1 + right) / 2, 1]
+  const seam = (right - left) * 0.05
+  const xs = [0, left / 2, Math.max(left / 2, left - seam), left, right, Math.min((1 + right) / 2, right + seam), (1 + right) / 2, 1]
   // More rows around the sleeve roots keep seam deformation smooth.
-  const ys = [...new Set([0, fit.bounds.y, fit.anchor.y, ...Array.from({ length: 9 }, (_, i) => (i + 1) / 10), 1])].sort((a, b) => a - b)
+  const details = Object.values(fit.sleeves).flatMap((s) => [s.pivot?.[1], s.cuff?.[1], s.attachment?.top?.[1], s.attachment?.bottom?.[1]]).filter((v) => Number.isFinite(v) && v > 0 && v < 1)
+  const ys = [...new Set([0, fit.bounds.y, fit.anchor.y, ...details, ...Array.from({ length: 9 }, (_, i) => (i + 1) / 10), 1])].sort((a, b) => a - b)
   const destination = (p) => {
     if (p[0] < left && transforms.left) return transforms.left(p)
     if (p[0] > right && transforms.right) return transforms.right(p)
     return world(p, box)
   }
   const triangles = []
-  for (let x = 0; x < xs.length - 1; x++) for (let y = 0; y < ys.length - 1; y++) {
-    const a = [xs[x], ys[y]], b = [xs[x + 1], ys[y]], c = [xs[x + 1], ys[y + 1]], d = [xs[x], ys[y + 1]]
-    for (const source of [[a, b, c], [a, c, d]]) triangles.push({ source, destination: source.map(destination) })
+  for (let x = 0; x < xs.length - 1; x++) {
+    const rows = xs[x] === left && xs[x + 1] === right ? [0, 1] : ys
+    for (let y = 0; y < rows.length - 1; y++) {
+      const a = [xs[x], rows[y]], b = [xs[x + 1], rows[y]], c = [xs[x + 1], rows[y + 1]], d = [xs[x], rows[y + 1]]
+      for (const source of [[a, b, c], [a, c, d]]) triangles.push({ source, destination: source.map(destination) })
+    }
   }
   return triangles
 }
@@ -71,16 +95,19 @@ export function triangleMatrix(source, destination) {
   return [a, b, c, d, u0 - a * x0 - c * y0, v0 - b * x0 - d * y0]
 }
 
-// Expand by a true perpendicular distance, rather than moving each corner a
-// fixed amount (which leaves hairline gaps along very skinny triangles).
+// A bevelled clip expansion closes triangle seams without huge miter spikes
+// when attachment landmarks produce very thin mesh triangles.
 export function expandedTriangle(points, overlap = 0.35) {
-  const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1])
-  const weights = [distance(points[1], points[2]), distance(points[0], points[2]), distance(points[0], points[1])]
-  const perimeter = weights.reduce((n, v) => n + v, 0)
-  const area2 = Math.abs((points[1][0] - points[0][0]) * (points[2][1] - points[0][1])
-    - (points[2][0] - points[0][0]) * (points[1][1] - points[0][1]))
-  if (area2 < 1e-6 || perimeter < 1e-6) return points
-  const centre = [0, 1].map((axis) => points.reduce((n, p, i) => n + p[axis] * weights[i], 0) / perimeter)
-  const scale = 1 + overlap / (area2 / perimeter)
-  return points.map((p) => p.map((v, axis) => centre[axis] + (v - centre[axis]) * scale))
+  const area2 = (points[1][0] - points[0][0]) * (points[2][1] - points[0][1])
+    - (points[2][0] - points[0][0]) * (points[1][1] - points[0][1])
+  if (Math.abs(area2) < 1e-6) return points
+  const sign = Math.sign(area2)
+  const normal = (a, b) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], length = Math.hypot(dx, dy)
+    return [sign * dy / length, -sign * dx / length]
+  }
+  return points.flatMap((p, i) => {
+    const previous = normal(points[(i + 2) % 3], p), next = normal(p, points[(i + 1) % 3])
+    return [previous, next].map((n) => p.map((v, axis) => v + n[axis] * overlap))
+  })
 }

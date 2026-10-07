@@ -1,6 +1,6 @@
 // Local, approximate fitting for upright, flat-laid garment cutouts.
 // Coordinates are fractions of the image, including its transparent padding.
-export const FIT_VERSION = 2
+export const FIT_VERSION = 3
 const CATEGORIES = ['top', 'outerwear', 'dress', 'bottom']
 const median = (values) => {
   const sorted = values.slice().sort((a, b) => a - b)
@@ -77,7 +77,20 @@ export function analyseSilhouette(data, width, height, category) {
     fit.sleeves = {}
     for (const side of ['left', 'right']) {
       const edge = side === 'left' ? left : right
-      const pivot = [edge, minY + h * 0.12]
+      // Sample just outside the torso to find the connected attachment band.
+      // Its middle is the sleeve axis; the top edge alone biases the warp.
+      const column = Math.round(edge + (side === 'left' ? -1 : 1) * (right - left) * 0.08)
+      let start = null, attachment = null
+      for (let y = minY; y <= maxY; y++) {
+        const on = column >= 0 && column < width && y < maxY && data[(y * width + column) * 4 + 3] >= 96
+        if (on && start == null) start = y
+        if (!on && start != null) {
+          if (start < minY + h * 0.45 && y - start >= Math.max(3, h * 0.025)) { attachment = [start, y]; break }
+          start = null
+        }
+      }
+      if (!attachment) continue
+      const pivot = [edge, (attachment[0] + attachment[1]) / 2]
       const points = []
       for (let y = minY; y < maxY; y++) for (const [l, r] of rows[y] ?? []) {
         for (let x = l; x < r; x++) {
@@ -87,14 +100,19 @@ export function analyseSilhouette(data, width, height, category) {
         }
       }
       const reach = side === 'left' ? edge - minX : maxX - edge
-      if (reach < (right - left) * 0.2 || points.length < w * h * 0.015) continue
+      if (reach < (right - left) * 0.08 || points.length < w * h * 0.003) continue
       if (points.filter((p) => p[1] < minY + h * 0.35).length < w * h * 0.003) continue
       const longest = points.reduce((n, p) => Math.max(n, p[2]), 0)
       const tip = points.filter((p) => p[2] >= longest * 0.9)
       const cuff = [tip.reduce((n, p) => n + p[0], 0) / tip.length, tip.reduce((n, p) => n + p[1], 0) / tip.length]
       // Lower flared hems and near-vertical side panels are not sleeves.
-      if (Math.abs(cuff[0] - edge) < (right - left) * 0.2) continue
-      fit.sleeves[side] = { pivot: [pivot[0] / width, pivot[1] / height], cuff: [cuff[0] / width, cuff[1] / height] }
+      if (Math.abs(cuff[0] - edge) < (right - left) * 0.08) continue
+      fit.sleeves[side] = {
+        pivot: [pivot[0] / width, pivot[1] / height], cuff: [cuff[0] / width, cuff[1] / height],
+        attachment: { top: [edge / width, attachment[0] / height], bottom: [edge / width, attachment[1] / height] },
+        fullLength: Math.hypot(cuff[0] - pivot[0], cuff[1] - pivot[1]) > (right - left) * 0.45,
+        extentRatio: longest / Math.hypot(cuff[0] - pivot[0], cuff[1] - pivot[1]),
+      }
     }
   }
   return validFit(fit, category) ? fit : null
