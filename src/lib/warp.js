@@ -1,3 +1,5 @@
+import { trimBounds } from './trim.js'
+
 // Bends a garment picture along a triangle mesh into one new picture.
 //
 // Drawing each triangle separately (clipped pieces) leaves hairline seams
@@ -10,7 +12,11 @@
 //   triangles  [{ source: 3 × [u, v] in 0–1 of src, destination: 3 × [x, y] doll units }]
 //   scale      output pixels per doll unit
 // Returns { data, width, height, box } where box is the doll-unit area covered.
+// The picture is trimmed to the garment: empty padding (which the sleeve
+// bending can swing far out) is left out, and empty edges are cut off.
 export function warpTriangles(src, triangles, scale) {
+  triangles = triangles.filter((t) => hasInk(src, t.source))
+  if (!triangles.length) return { data: new Uint8ClampedArray(4), width: 1, height: 1, box: { x: 0, y: 0, width: 0, height: 0 } }
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
   for (const { destination } of triangles) for (const [x, y] of destination) {
     if (x < minX) minX = x
@@ -49,7 +55,32 @@ export function warpTriangles(src, triangles, scale) {
       }
     }
   }
-  return { data: out, width, height, box }
+  return trim({ data: out, width, height, box }, scale)
+}
+
+// Whether any of the source picture under a triangle is visible at all
+// (checks the triangle's surrounding box, plus one pixel for smoothing).
+function hasInk(src, source) {
+  const us = source.map((p) => p[0] * src.width), vs = source.map((p) => p[1] * src.height)
+  const x0 = Math.max(0, Math.floor(Math.min(...us)) - 1), x1 = Math.min(src.width - 1, Math.ceil(Math.max(...us)))
+  const y0 = Math.max(0, Math.floor(Math.min(...vs)) - 1), y1 = Math.min(src.height - 1, Math.ceil(Math.max(...vs)))
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (src.data[(y * src.width + x) * 4 + 3] > 0) return true
+  }
+  return false
+}
+
+// Cuts off fully see-through rows and columns around the garment.
+function trim(pic, scale) {
+  const b = trimBounds(pic.data, pic.width, pic.height, 1)
+  if (!b || (b.w === pic.width && b.h === pic.height)) return pic
+  const data = new Uint8ClampedArray(b.w * b.h * 4)
+  for (let y = 0; y < b.h; y++) {
+    const from = ((b.y + y) * pic.width + b.x) * 4
+    data.set(pic.data.subarray(from, from + b.w * 4), y * b.w * 4)
+  }
+  const box = { x: pic.box.x + b.x / scale, y: pic.box.y + b.y / scale, width: b.w / scale, height: b.h / scale }
+  return { data, width: b.w, height: b.h, box }
 }
 
 // Smooth (bilinear) read between source pixels. Colours are weighted by
