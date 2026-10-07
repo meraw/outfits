@@ -2,6 +2,7 @@
 import { h, chips, blobUrl } from '../ui.js'
 import { COLOUR_NAMES, paletteColour } from '../lib/colour.js'
 import { rotateImages } from '../lib/cutout.js'
+import { fitFromBlob } from '../lib/fit.js'
 
 export const CATEGORY_LABELS = {
   top: 'Top', bottom: 'Bottom', dress: 'Dress', outerwear: 'Outerwear', shoes: 'Shoes', accessory: 'Accessory',
@@ -99,6 +100,9 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
     }
     save.disabled = true
     item.colour = { ...colour }
+    // Category is chosen after photo processing, and rotation changes its
+    // silhouette. Analyse the final cutout so stored anchors never go stale.
+    item.fit = await fitFromBlob(images.cutout, item.category)
     await onSave(item, rotated ? images : null) // new pictures only if they were turned
   } },
     picBox,

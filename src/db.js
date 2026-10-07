@@ -40,7 +40,7 @@ export function newItem() {
     material: null,
     lastWorn: null, // 'YYYY-MM-DD'
     notes: '',
-    fit: null, // doll position, from phase 3
+    fit: null, // versioned, normalized silhouette anchors for the paper doll
   }
 }
 
