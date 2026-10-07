@@ -1,6 +1,6 @@
 // Local, approximate fitting for upright, flat-laid garment cutouts.
 // Coordinates are fractions of the image, including its transparent padding.
-export const FIT_VERSION = 1
+export const FIT_VERSION = 2
 const CATEGORIES = ['top', 'outerwear', 'dress', 'bottom']
 const median = (values) => {
   const sorted = values.slice().sort((a, b) => a - b)
@@ -61,14 +61,41 @@ export function analyseSilhouette(data, width, height, category) {
   let splitRows = 0
   if (bottom) for (let y = Math.ceil(minY + h * 0.55); y < minY + h * 0.95; y++) {
     const runs = rows[y]
-    if (runs?.some((r) => r[1] < centre) && runs.some((r) => r[0] > centre)) splitRows++
+    if (runs?.some((r) => r[1] < centre) && runs.some((r) => r[0] > centre)) {
+      splitRows++
+    }
   }
   const fit = {
     version: FIT_VERSION, category,
     dividedLegs: bottom && splitRows >= h * 0.08,
+    longLegs: bottom && splitRows >= h * 0.08 && h / (right - left) > 1.65,
     bounds: { x: minX / width, y: minY / height, width: w / width, height: h / height },
     // Horizontal span sets scale; the upper anchor sets where it hangs.
     anchor: { left: left / width, right: right / width, y: (minY + h * (bottom ? 0.04 : 0.12)) / height },
+  }
+  if (category === 'top' || category === 'outerwear') {
+    fit.sleeves = {}
+    for (const side of ['left', 'right']) {
+      const edge = side === 'left' ? left : right
+      const pivot = [edge, minY + h * 0.12]
+      const points = []
+      for (let y = minY; y < maxY; y++) for (const [l, r] of rows[y] ?? []) {
+        for (let x = l; x < r; x++) {
+          if (side === 'left' ? x < edge - (right - left) * 0.08 : x > edge + (right - left) * 0.08) {
+            points.push([x, y, Math.hypot(x - pivot[0], y - pivot[1])])
+          }
+        }
+      }
+      const reach = side === 'left' ? edge - minX : maxX - edge
+      if (reach < (right - left) * 0.2 || points.length < w * h * 0.015) continue
+      if (points.filter((p) => p[1] < minY + h * 0.35).length < w * h * 0.003) continue
+      const longest = points.reduce((n, p) => Math.max(n, p[2]), 0)
+      const tip = points.filter((p) => p[2] >= longest * 0.9)
+      const cuff = [tip.reduce((n, p) => n + p[0], 0) / tip.length, tip.reduce((n, p) => n + p[1], 0) / tip.length]
+      // Lower flared hems and near-vertical side panels are not sleeves.
+      if (Math.abs(cuff[0] - edge) < (right - left) * 0.2) continue
+      fit.sleeves[side] = { pivot: [pivot[0] / width, pivot[1] / height], cuff: [cuff[0] / width, cuff[1] / height] }
+    }
   }
   return validFit(fit, category) ? fit : null
 }

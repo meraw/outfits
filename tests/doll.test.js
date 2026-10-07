@@ -31,6 +31,14 @@ describe('dollGeometry', () => {
   it('draws a body outline', () => {
     expect(base.outline).toMatch(/^M[\d.\s,-]+C/)
   })
+
+  it('adjusts torso length independently of leg length and shoulder position', () => {
+    const longer = dollGeometry({ torso: 1.2 })
+    expect(longer.waist.y).toBeGreaterThan(base.waist.y)
+    expect(longer.shoulders).toEqual(base.shoulders)
+    expect(longer.ankles.y - longer.crotch.y).toBeCloseTo(base.ankles.y - base.crotch.y)
+    expect(dollGeometry({ hips: 1 }).shape.torso).toBe(1)
+  })
 })
 
 describe('placeItem', () => {

@@ -7,8 +7,10 @@ import {
 } from '../lib/doll.js'
 import { CATEGORY_LABELS } from './item-form.js'
 import { fitFromBlob, validFit } from '../lib/fit.js'
+import { sleeveMesh, triangleMatrix, expandedTriangle } from '../lib/garment-mesh.js'
 
 const OUTFIT_KEY = 'dollOutfit' // ids of what the doll is wearing
+let garmentSequence = 0
 
 export async function dollScreen(root) {
   const items = await listItems()
@@ -44,8 +46,8 @@ export async function dollScreen(root) {
     clothes.replaceChildren(...drawn.flatMap((item, index) => {
       const pic = loaded[index]
       if (!pic) return []
-      const r = placeItem(item.category, pic.aspect, geo, pic.fit)
-      return svg('image', { href: pic.url, x: r.x, y: r.y, width: r.width, height: r.height, 'data-id': item.id })
+      const r = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength)
+      return garmentPicture(item, pic, r, geo)
     }))
   }
 
@@ -139,6 +141,7 @@ export async function dollScreen(root) {
           : h('p', { class: 'muted' }, 'Add some clothes to your wardrobe to dress the doll.'),
         h('details', { class: 'shape' },
           h('summary', {}, 'Body shape'),
+          h('p', { class: 'hint' }, 'Adjust once to match your proportions. Torso and leg lengths are saved separately.'),
           ...sliders,
           reset),
       ),
@@ -146,6 +149,24 @@ export async function dollScreen(root) {
   )
   await redraw()
   await renderPicker()
+}
+
+function garmentPicture(item, pic, box, geo) {
+  const mesh = sleeveMesh(pic.fit, box, geo)
+  if (!mesh) return svg('image', { href: pic.url, ...box, preserveAspectRatio: 'none', 'data-id': item.id })
+  const id = `garment-${++garmentSequence}`
+  const defs = svg('defs', {}, svg('image', { id, href: pic.url, width: 1, height: 1, preserveAspectRatio: 'none' }))
+  const pieces = mesh.flatMap(({ source, destination }, i) => {
+    const matrix = triangleMatrix(source, destination)
+    if (!matrix) return []
+    // Tiny clip overlap hides anti-aliased hairline gaps between triangles.
+    const points = expandedTriangle(destination)
+    const clip = `${id}-clip-${i}`
+    defs.append(svg('clipPath', { id: clip, clipPathUnits: 'userSpaceOnUse' },
+      svg('polygon', { points: points.map((p) => p.join(',')).join(' ') })))
+    return svg('g', { 'clip-path': `url(#${clip})` }, svg('use', { href: `#${id}`, transform: `matrix(${matrix.join(' ')})` }))
+  })
+  return svg('g', { 'data-id': item.id, 'data-fitting': 'sleeves' }, defs, ...pieces)
 }
 
 function loadOutfit() {

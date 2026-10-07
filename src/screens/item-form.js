@@ -41,6 +41,15 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
 
   // Layer only matters for things you wear in layers.
   const layerField = h('div', { class: 'field' })
+  const hemField = h('div', { class: 'field' })
+  const renderHem = () => {
+    hemField.hidden = item.category !== 'bottom'
+    hemField.replaceChildren(h('div', { class: 'label' }, 'Hem length'),
+      chips([['auto', 'Automatic'], ['short', 'Shorts'], ['knee', 'Knee'], ['calf', 'Calf'], ['ankle', 'Ankle'], ['floor', 'Below ankle']],
+        item.hemLength ?? 'auto', (value) => { item.hemLength = value }),
+      h('span', { class: 'hint' }, 'Only change this if the automatic length looks wrong.'))
+  }
+  renderHem()
   const renderLayer = () => {
     const wanted = item.category in DEFAULT_LAYER
     if (!wanted) item.layer = null
@@ -55,6 +64,7 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
     item.category = v
     err.textContent = ''
     renderLayer()
+    renderHem()
   })
 
   // Colour: detected automatically; tap a square to choose another.
@@ -111,6 +121,7 @@ export function itemForm({ item, images, removed = true, onSave, extra }) {
       "The background couldn't be removed from this photo, so the full photo is used. Try again with the item on a plain, contrasting surface."),
     field('Category', categoryChips),
     layerField,
+    hemField,
     field('Warmth', chips([1, 2, 3, 4, 5].map((n) => [n, String(n)]), item.warmth, (v) => { item.warmth = v }),
       h('span', { class: 'hint' }, '1 = very light, 5 = very warm')),
     field('Colour', current, squares),

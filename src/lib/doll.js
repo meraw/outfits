@@ -13,24 +13,27 @@ export const SHAPE_SLIDERS = [
   ['bust', 'Bust'],
   ['waist', 'Waist'],
   ['hips', 'Hips'],
+  ['torso', 'Torso length'],
   ['legs', 'Leg length'],
 ]
 export const SHAPE_MIN = 0.8
 export const SHAPE_MAX = 1.25
-export const DEFAULT_SHAPE = { shoulders: 1, bust: 1, waist: 1, hips: 1, legs: 1 }
+export const DEFAULT_SHAPE = { shoulders: 1, bust: 1, waist: 1, hips: 1, torso: 1, legs: 1 }
 
 const clamp = (v) => Math.min(SHAPE_MAX, Math.max(SHAPE_MIN, Number(v) || 1))
 
 export function dollGeometry(shape = DEFAULT_SHAPE) {
   const s = Object.fromEntries(Object.keys(DEFAULT_SHAPE).map((k) => [k, clamp(shape[k] ?? 1)]))
-  // Roughly real-life proportions (not a fashion sketch), so real
-  // flat-laid clothes fit: 1 unit ≈ 2.5 mm.
+  // Relative front-view proportions, adjustable once for the person's body.
+  // These drawing units are not a calibrated physical garment measurement.
   const sh = 72 * s.shoulders
   const bust = 64 * s.bust
   const waist = 50 * s.waist
   const hip = 76 * s.hips
-  const kneeY = 470 + 150 * s.legs
-  const ankleY = 470 + 300 * s.legs
+  const bodyY = (y) => 192 + (y - 192) * s.torso
+  const legStart = bodyY(488) - 18
+  const kneeY = legStart + 150 * s.legs
+  const ankleY = legStart + 300 * s.legs
   const floorY = ankleY + 24
   const legX = hip * 0.42 // centre of each leg at the knee
   const footX = hip * 0.36
@@ -46,7 +49,9 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
     [footX - 14, floorY - 2], [footX - 10, ankleY], [legX - 17, kneeY],
     [9, 520],
   ]
-  const points = [...right, [0, 488], ...right.slice().reverse().map(([x, y]) => [-x, y])]
+  // Torso proportion changes the body above the legs; leg length stays independent.
+  for (const i of [4, 5, 6, 7, 8, 9, 10, 19]) right[i][1] = bodyY(right[i][1])
+  const points = [...right, [0, bodyY(488)], ...right.slice().reverse().map(([x, y]) => [-x, y])]
     .map(([x, y]) => [CX + x, y])
 
   // Arms hang slightly out from the body, so flat-laid sleeves line up.
@@ -63,14 +68,17 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
     arms: [arm(1), arm(-1)],
     hands: [[CX + sh + 34, 462], [CX - sh - 34, 462]],
     shoulders: { y: 192, half: sh },
-    waist: { y: 340, half: waist },
-    hips: { y: 428, half: hip },
+    bust: { y: bodyY(268), half: bust },
+    waist: { y: bodyY(340), half: waist },
+    hips: { y: bodyY(428), half: hip },
+    crotch: { y: bodyY(488) },
     ankles: { y: ankleY },
     feet: { y: floorY, half: footX },
     landmarks: {
       leftShoulder: [CX - sh, 192], rightShoulder: [CX + sh, 192],
-      leftWaist: [CX - waist, 340], rightWaist: [CX + waist, 340],
-      leftHip: [CX - hip, 428], rightHip: [CX + hip, 428],
+      leftWaist: [CX - waist, bodyY(340)], rightWaist: [CX + waist, bodyY(340)],
+      leftHip: [CX - hip, bodyY(428)], rightHip: [CX + hip, bodyY(428)],
+      leftWrist: [CX - sh - 32, 450], rightWrist: [CX + sh + 32, 450],
       leftKnee: [CX - legX, kneeY], rightKnee: [CX + legX, kneeY],
       leftAnkle: [CX - footX, ankleY], rightAnkle: [CX + footX, ankleY],
     },
@@ -79,9 +87,9 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
 
 // Where an item's picture goes on the doll before any hand adjustment.
 // aspect = picture width ÷ height. Returns a box in doll units.
-export function placeItem(category, aspect, geo, fit = null) {
+export function placeItem(category, aspect, geo, fit = null, hemLength = 'auto') {
   aspect = Number.isFinite(aspect) && aspect > 0 ? aspect : 1
-  if (validFit(fit, category)) return placeFittedItem(category, aspect, geo, fit)
+  if (validFit(fit, category)) return placeFittedItem(category, aspect, geo, fit, hemLength)
   let width, top
   switch (category) {
     case 'outerwear':
@@ -122,22 +130,30 @@ export function placeItem(category, aspect, geo, fit = null) {
   return { x: geo.centre - width / 2, y: top, width, height: width / aspect }
 }
 
-function placeFittedItem(category, aspect, geo, fit) {
+function placeFittedItem(category, aspect, geo, fit, hemLength) {
   const { anchor, bounds } = fit
   const bottom = category === 'bottom'
   // A rigid picture cannot match bust, waist and hips independently. Fit its
   // torso span to the shoulders/bust, or waistband to the upper pelvis.
   const targetSpan = bottom ? Math.max(geo.waist.half * 2 * 1.08, geo.hips.half * 2 * 0.88)
-    : Math.max(geo.shoulders.half * 2 * 1.02, 128 * geo.shape.bust * 1.08) * (category === 'outerwear' ? 1.12 : 1)
-  let width = targetSpan / (anchor.right - anchor.left)
+    : Math.max(geo.shoulders.half * 2 * 1.02, geo.bust.half * 2 * 1.08) * (category === 'outerwear' ? 1.12 : 1)
+  const width = targetSpan / (anchor.right - anchor.left)
   const targetY = bottom ? geo.waist.y - 8 : geo.shoulders.y
-  if (bottom && fit.dividedLegs === true && bounds.width * aspect / bounds.height < 0.6) {
-    // For long trousers, use leg length as a bounded correction to waist fit.
-    // Shorts/skirts keep their relative length; never stretch the PNG.
-    const desired = (geo.ankles.y + 10 - targetY) * aspect / (bounds.y + bounds.height - anchor.y)
-    width = Math.max(width * 0.8, Math.min(width * 1.25, desired))
+  let height = width / aspect
+  const hemTargets = {
+    short: geo.hips.y + 65,
+    knee: geo.landmarks.leftKnee[1],
+    calf: (geo.landmarks.leftKnee[1] + geo.ankles.y) / 2,
+    ankle: geo.ankles.y + 2,
+    floor: geo.feet.y - 2,
   }
-  const height = width / aspect
+  const requestedHem = Object.hasOwn(hemTargets, hemLength) ? hemTargets[hemLength] : null
+  const hemY = requestedHem ?? (bottom && fit.longLegs === true ? hemTargets.floor : null)
+  if (bottom && hemY != null) {
+    // Waist width cannot also determine trouser length, especially for wide
+    // legs. Fit those axes separately; an explicit hem choice handles crops.
+    height = (hemY - targetY) / (bounds.y + bounds.height - anchor.y)
+  }
   return {
     x: geo.centre - (anchor.left + anchor.right) / 2 * width,
     y: targetY - anchor.y * height,
