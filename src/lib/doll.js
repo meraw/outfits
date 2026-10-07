@@ -51,6 +51,8 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
   ]
   // Torso proportion changes the body above the legs; leg length stays independent.
   for (const i of [4, 5, 6, 7, 8, 9, 10, 19]) right[i][1] = bodyY(right[i][1])
+  // Half the body width down the outside, neck to ankle: [y, half width].
+  const profile = right.slice(0, 14).map(([x, y]) => [y, x])
   const points = [...right, [0, bodyY(488)], ...right.slice().reverse().map(([x, y]) => [-x, y])]
     .map(([x, y]) => [CX + x, y])
 
@@ -73,6 +75,7 @@ export function dollGeometry(shape = DEFAULT_SHAPE) {
     hips: { y: bodyY(428), half: hip },
     crotch: { y: bodyY(488) },
     ankles: { y: ankleY },
+    profile,
     feet: { y: floorY, half: footX },
     landmarks: {
       leftShoulder: [CX - sh, 192], rightShoulder: [CX + sh, 192],

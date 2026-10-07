@@ -10,10 +10,12 @@ import { fitFromBlob, validFit } from '../lib/fit.js'
 import { sleeveMesh, legMesh } from '../lib/garment-mesh.js'
 import { warpTriangles } from '../lib/warp.js'
 import { canTuck, drawingPlan, tuckLine } from '../lib/tuck.js'
+import { garmentRows, makeRoom } from '../lib/shape.js'
 import { applyAdjust, cleanAdjust, gestureAdjust, isAdjusted, pickGarment } from '../lib/adjust.js'
 
 const OUTFIT_KEY = 'dollOutfit' // ids of what the doll is wearing
 const BENT_CACHE_SIZE = 24 // bent garment pictures kept per visit
+const MAKE_ROOM_FOR = new Set(['top', 'outerwear', 'dress', 'bottom']) // widen where the body is wider
 
 export async function dollScreen(root) {
   const items = await listItems()
@@ -58,7 +60,9 @@ export async function dollScreen(root) {
       if (!pic) return null
       const base = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength, item.shoeView)
       const box = applyAdjust(base, item.dollAdjust) // the hand adjustment, if any
-      const mesh = sleeveMesh(pic.fit, box, geo) ?? legMesh(pic.fit, box, geo)
+      const bend = sleeveMesh(pic.fit, box, geo) ?? legMesh(pic.fit, box, geo)
+      const rows = MAKE_ROOM_FOR.has(item.category) ? await pic.rows() : null
+      const mesh = rows ? makeRoom(bend, rows, box, geo) : bend
       if (!mesh) {
         pic.pixels().then((p) => { pic.pixelData = p }) // for picking by tap
         return {
@@ -144,11 +148,14 @@ export async function dollScreen(root) {
       // Old wardrobe items get fitted lazily, once per screen visit. Avoid
       // rewriting their tags/dates or eagerly scanning hundreds of photos.
       const fit = validFit(item.fit, item.category) ? item.fit : await fitFromBlob(images.cutout, item.category)
-      let pixels
+      let pixels, rows
+      const pixels_ = () => (pixels ??= readPixels(images.cutout))
       return {
         url: blobUrl(images.cutout), aspect, fit,
         // The cutout's pixels, read only for garments that get bent.
-        pixels: () => (pixels ??= readPixels(images.cutout)),
+        pixels: pixels_,
+        // The garment's body width on each row, for making room for the doll.
+        rows: () => (rows ??= (async () => { const p = await pixels_(); return p && garmentRows(p.data, p.width, p.height) })()),
       }
     })())
     return pictures.get(item.id)
