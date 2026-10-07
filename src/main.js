@@ -8,18 +8,11 @@ import { backupScreen } from './screens/backup.js'
 import { dollScreen } from './screens/doll.js'
 
 const root = document.getElementById('app')
-let screenCleanup = null
-let screenAbort = null
 
 // Screens are picked from the part of the address after #:
 // #/ wardrobe, #/add new item, #/item/<id> edit, #/backup backup and restore,
-// #/doll the paper doll, #/3d the mannequin preview.
+// #/doll the paper doll.
 async function route() {
-  screenAbort?.abort()
-  screenCleanup?.()
-  screenCleanup = null
-  const controller = new AbortController()
-  screenAbort = controller
   freeUrls()
   window.scrollTo(0, 0)
   // Each visit owns its host, so a slower previous screen cannot replace it.
@@ -30,20 +23,6 @@ async function route() {
   if (hash === '/add') intakeScreen(screen)
   else if (hash === '/backup') await backupScreen(screen)
   else if (hash === '/doll') await dollScreen(screen)
-  else if (hash === '/3d') {
-    const { model3dScreen } = await import('./screens/model3d.js')
-    if (controller.signal.aborted) return
-    const cleanup = await model3dScreen(screen, { signal: controller.signal })
-    if (controller.signal.aborted) cleanup?.()
-    else screenCleanup = cleanup
-  }
-  else if (hash === '/3d-sample') {
-    const { modelledSampleScreen } = await import('./screens/modelled-sample.js')
-    if (controller.signal.aborted) return
-    const cleanup = await modelledSampleScreen(screen, { signal: controller.signal })
-    if (controller.signal.aborted) cleanup?.()
-    else screenCleanup = cleanup
-  }
   else if (edit) await editScreen(screen, decodeURIComponent(edit[1]))
   else await wardrobeScreen(screen)
 }
