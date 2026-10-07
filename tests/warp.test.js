@@ -87,9 +87,32 @@ describe('warpTriangles', () => {
   })
 
   it('keeps see-through parts of the cutout see-through', () => {
-    const src = picture(4, 4, (x) => (x < 2 ? [0, 0, 0, 0] : [10, 20, 30, 255]))
-    const out = warpTriangles(src, grid(1, 1, (u, v) => [u * 4, v * 4]), 1)
-    expect(out.data[3]).toBe(0)                  // left edge: transparent
-    expect(out.data[(0 * 4 + 3) * 4 + 3]).toBe(255) // right edge: solid
+    // Solid all round, with a see-through hole in the middle (like a neckline).
+    const hole = (x, y) => x >= 2 && x <= 3 && y >= 2 && y <= 3
+    const src = picture(6, 6, (x, y) => (hole(x, y) ? [0, 0, 0, 0] : [10, 20, 30, 255]))
+    const out = warpTriangles(src, grid(1, 1, (u, v) => [u * 6, v * 6]), 1)
+    const alpha = (x, y) => out.data[(y * out.width + x) * 4 + 3]
+    expect([alpha(2, 2), alpha(3, 3)]).toEqual([0, 0])
+    expect([alpha(0, 0), alpha(5, 5)]).toEqual([255, 255])
+  })
+
+  it('leaves empty padding that is swung far away out of the picture', () => {
+    // Left half fabric, right half empty; the empty half is moved far off.
+    const src = picture(10, 10, (x) => (x < 5 ? [200, 30, 40, 255] : [0, 0, 0, 0]))
+    const fabric = { source: [[0, 0], [0.5, 0], [0.5, 1]], destination: [[0, 0], [10, 0], [10, 20]] }
+    const fabric2 = { source: [[0, 0], [0.5, 1], [0, 1]], destination: [[0, 0], [10, 20], [0, 20]] }
+    const padding = { source: [[0.6, 0], [1, 0], [1, 1]], destination: [[500, 0], [510, 0], [510, 20]] }
+    const out = warpTriangles(src, [fabric, fabric2, padding], 2)
+    expect(out.box.x + out.box.width).toBeLessThanOrEqual(10.5)
+    expect(out.width).toBeLessThanOrEqual(21)
+  })
+
+  it('cuts off empty edges around the garment', () => {
+    // A 10 × 10 picture with a solid 2 × 2 patch at (4, 4)–(5, 5).
+    const src = picture(10, 10, (x, y) => (x >= 4 && x <= 5 && y >= 4 && y <= 5 ? [0, 90, 0, 255] : [0, 0, 0, 0]))
+    const out = warpTriangles(src, grid(2, 2, (u, v) => [100 + u * 10, 50 + v * 10]), 1)
+    expect(out.box).toEqual({ x: 104, y: 54, width: 2, height: 2 })
+    expect([out.width, out.height]).toEqual([2, 2])
+    expect(out.data[3]).toBe(255)
   })
 })
