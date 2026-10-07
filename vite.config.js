@@ -26,7 +26,7 @@ export default defineConfig({
         // The background remover's engine (~24 MB .wasm) isn't downloaded at
         // install; it's fetched the first time a photo is added, then kept.
         // Its model files are cached by the library itself.
-        globPatterns: ['**/*.{js,mjs,css,html,png,svg,webmanifest}'],
+        globPatterns: ['**/*.{js,mjs,css,html,png,svg,webmanifest,glb}'],
         maximumFileSizeToCacheInBytes: 2 * 1024 * 1024,
         runtimeCaching: [
           {

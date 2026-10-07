@@ -1,0 +1,6 @@
+# Offline asset authoring only; the web app loads the checked-in GLB.
+numpy>=1.26,<3
+scipy>=1.12,<2
+scikit-image==0.26.0
+trimesh==5.1.1
+fast-simplification==0.2.0

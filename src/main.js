@@ -37,6 +37,13 @@ async function route() {
     if (controller.signal.aborted) cleanup?.()
     else screenCleanup = cleanup
   }
+  else if (hash === '/3d-sample') {
+    const { modelledSampleScreen } = await import('./screens/modelled-sample.js')
+    if (controller.signal.aborted) return
+    const cleanup = await modelledSampleScreen(screen, { signal: controller.signal })
+    if (controller.signal.aborted) cleanup?.()
+    else screenCleanup = cleanup
+  }
   else if (edit) await editScreen(screen, decodeURIComponent(edit[1]))
   else await wardrobeScreen(screen)
 }

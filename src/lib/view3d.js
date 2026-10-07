@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { buildMannequin, buildGarment, disposeModel, modelDimensions } from './model3d.js'
 
-export function createModelView(host, onTurn = () => {}) {
+export function createModelView(host, onTurn = () => {}, { flatFloor = false } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -35,9 +35,10 @@ export function createModelView(host, onTurn = () => {}) {
   const fill = new THREE.DirectionalLight('#e2edff', 1.1)
   fill.position.set(3, 2, -2)
   scene.add(fill)
-  const plinth = new THREE.Mesh(new THREE.CylinderGeometry(0.53, 0.55, 0.045, 64),
+  const plinth = new THREE.Mesh(flatFloor ? new THREE.CircleGeometry(0.58, 64) : new THREE.CylinderGeometry(0.53, 0.55, 0.045, 64),
     new THREE.MeshStandardMaterial({ color: '#e8dfd3', roughness: 1 }))
-  plinth.position.y = -0.027
+  plinth.position.y = flatFloor ? -0.002 : -0.027
+  if (flatFloor) plinth.rotation.x = -Math.PI / 2
   plinth.receiveShadow = true
   scene.add(plinth)
   let model = null, frame = null, disposed = false, height = 1.95
@@ -66,7 +67,19 @@ export function createModelView(host, onTurn = () => {}) {
   canvas.addEventListener('webglcontextlost', lost)
   canvas.addEventListener('webglcontextrestored', restored)
   resize()
+  const showModel = (next, top = 1.85) => {
+    if (disposed) { disposeModel(next); return }
+    if (model) { scene.remove(model); disposeModel(model) }
+    model = next
+    scene.add(model)
+    height = top + 0.2
+    controls.target.y = top / 2 - 0.025
+    controls.update()
+    resize()
+  }
   return {
+    showModel,
+    refresh: render,
     update(shape, garments) {
       if (disposed) return
       if (model) { scene.remove(model); disposeModel(model) }
