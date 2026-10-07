@@ -1,6 +1,6 @@
 // Local, approximate fitting for upright, flat-laid garment cutouts.
 // Coordinates are fractions of the image, including its transparent padding.
-export const FIT_VERSION = 3
+export const FIT_VERSION = 4
 const CATEGORIES = ['top', 'outerwear', 'dress', 'bottom']
 const median = (values) => {
   const sorted = values.slice().sort((a, b) => a - b)
@@ -15,6 +15,8 @@ export function validFit(fit, category) {
     && b.x + b.width <= 1.001 && b.y + b.height <= 1.001
     && a.left >= b.x && a.right <= b.x + b.width && a.right - a.left >= b.width * 0.15
     && a.y >= b.y && a.y <= b.y + b.height
+    && (!fit.legs || ['left', 'right'].every((side) => [...(fit.legs[side]?.top ?? []), ...(fit.legs[side]?.hem ?? [])]
+      .filter((v) => Number.isFinite(v) && v >= 0 && v <= 1).length === 4))
 }
 
 // Kept independent of Canvas so the geometry can be tested with synthetic masks.
@@ -73,6 +75,12 @@ export function analyseSilhouette(data, width, height, category) {
     // Horizontal span sets scale; the upper anchor sets where it hangs.
     anchor: { left: left / width, right: right / width, y: (minY + h * (bottom ? 0.04 : 0.12)) / height },
   }
+  if (fit.dividedLegs) {
+    const legs = findLegs(rows, minY, maxY, h, centre)
+    if (legs) fit.legs = Object.fromEntries(Object.entries(legs).map(([side, leg]) => [side, {
+      top: [leg.top[0] / width, leg.top[1] / height], hem: [leg.hem[0] / width, leg.hem[1] / height],
+    }]))
+  }
   if (category === 'top' || category === 'outerwear') {
     fit.sleeves = {}
     for (const side of ['left', 'right']) {
@@ -116,6 +124,43 @@ export function analyseSilhouette(data, width, height, category) {
     }
   }
   return validFit(fit, category) ? fit : null
+}
+
+// Each trouser leg's middle line: where it leaves the crotch (top) and where
+// it ends (hem), in pixels. The crotch is the first row, below the
+// waistband, from which the legs stay apart.
+function findLegs(rows, minY, maxY, h, centre) {
+  const split = (y) => {
+    const runs = rows[y]
+    if (!runs) return null
+    const left = runs.filter((r) => r[1] <= centre), right = runs.filter((r) => r[0] >= centre)
+    if (!left.length || !right.length) return null
+    return {
+      left: (Math.min(...left.map((r) => r[0])) + Math.max(...left.map((r) => r[1]))) / 2,
+      right: (Math.min(...right.map((r) => r[0])) + Math.max(...right.map((r) => r[1]))) / 2,
+    }
+  }
+  const steady = Math.max(2, Math.round(h * 0.03))
+  let crotch = -1
+  for (let y = Math.ceil(minY + h * 0.12); y < maxY - steady; y++) {
+    let apart = true
+    for (let k = 0; k < steady && apart; k++) apart = !!split(y + k)
+    if (apart) { crotch = y; break }
+  }
+  if (crotch < 0) return null
+  const hemRows = []
+  for (let y = maxY - 1; y > crotch && hemRows.length < Math.max(2, Math.round(h * 0.04)); y--) {
+    const s = split(y)
+    if (s) hemRows.push([y, s])
+  }
+  if (hemRows.length < 2) return null
+  const top = split(crotch)
+  const avg = (side) => hemRows.reduce((n, [, s]) => n + s[side], 0) / hemRows.length
+  const hemY = hemRows.reduce((n, [y]) => n + y, 0) / hemRows.length
+  return {
+    left: { top: [top.left, crotch], hem: [avg('left'), hemY] },
+    right: { top: [top.right, crotch], hem: [avg('right'), hemY] },
+  }
 }
 
 export async function fitFromBlob(blob, category) {
