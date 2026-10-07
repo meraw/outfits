@@ -13,6 +13,14 @@ export function h(tag, props = {}, ...children) {
   return el
 }
 
+// Same as h(), for SVG drawings.
+export function svg(tag, attrs = {}, ...children) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag)
+  for (const [k, v] of Object.entries(attrs)) if (v != null) el.setAttribute(k, v)
+  for (const c of children.flat()) if (c != null && c !== false) el.append(c)
+  return el
+}
+
 // A row of buttons where one (or none) is selected.
 export function chips(options, value, onChange) {
   const row = h('div', { class: 'chips', role: 'radiogroup' })

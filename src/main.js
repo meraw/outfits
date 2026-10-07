@@ -5,11 +5,13 @@ import { wardrobeScreen } from './screens/wardrobe.js'
 import { intakeScreen } from './screens/intake.js'
 import { editScreen } from './screens/item-edit.js'
 import { backupScreen } from './screens/backup.js'
+import { dollScreen } from './screens/doll.js'
 
 const root = document.getElementById('app')
 
 // Screens are picked from the part of the address after #:
-// #/ wardrobe, #/add new item, #/item/<id> edit, #/backup backup and restore.
+// #/ wardrobe, #/add new item, #/item/<id> edit, #/backup backup and restore,
+// #/doll the paper doll.
 async function route() {
   freeUrls()
   window.scrollTo(0, 0)
@@ -17,6 +19,7 @@ async function route() {
   const edit = hash.match(/^\/item\/(.+)$/)
   if (hash === '/add') intakeScreen(root)
   else if (hash === '/backup') await backupScreen(root)
+  else if (hash === '/doll') await dollScreen(root)
   else if (edit) await editScreen(root, decodeURIComponent(edit[1]))
   else await wardrobeScreen(root)
 }

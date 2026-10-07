@@ -23,6 +23,7 @@ export async function wardrobeScreen(root) {
     h('header', { class: 'bar' },
       h('h1', {}, 'Wardrobe'),
       h('span', { class: 'muted' }, items.length === 1 ? '1 item' : `${items.length} items`),
+      h('a', { href: '#/doll', class: 'pill' }, 'Doll'),
       h('a', { href: '#/backup', class: 'pill' }, 'Backup')),
     items.length
       ? grid

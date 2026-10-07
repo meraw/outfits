@@ -1,14 +1,30 @@
 // Everything stored on the phone lives here (IndexedDB).
 // "items" holds the tags, "images" holds the photos, kept apart so the
 // wardrobe list loads without pulling every full-size photo.
+// "settings" holds small app-wide values, like the doll's shape.
 import { openDB } from 'idb'
 
-const dbPromise = openDB('outfits', 1, {
-  upgrade(db) {
-    db.createObjectStore('items', { keyPath: 'id' })
-    db.createObjectStore('images', { keyPath: 'itemId' })
+const dbPromise = openDB('outfits', 2, {
+  upgrade(db, oldVersion) {
+    if (oldVersion < 1) {
+      db.createObjectStore('items', { keyPath: 'id' })
+      db.createObjectStore('images', { keyPath: 'itemId' })
+    }
+    if (oldVersion < 2) db.createObjectStore('settings')
   },
+  // Another open tab of the app (an older version) holding the database
+  // would block the upgrade; close our side so it can go ahead.
+  blocking() { dbPromise.then((db) => db.close()) },
 })
+
+export async function getSetting(key, fallback) {
+  const value = await (await dbPromise).get('settings', key)
+  return value === undefined ? fallback : value
+}
+
+export async function setSetting(key, value) {
+  await (await dbPromise).put('settings', value, key)
+}
 
 export function newItem() {
   const now = new Date().toISOString()

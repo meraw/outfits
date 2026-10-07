@@ -49,3 +49,12 @@ describe('wardrobe storage', () => {
     expect(await getImages(a.id)).toBeUndefined()
   })
 })
+
+describe('settings', () => {
+  it('returns the fallback until something is saved, then the saved value', async () => {
+    const { getSetting, setSetting } = await import('../src/db.js')
+    expect(await getSetting('dollShape', { hips: 1 })).toEqual({ hips: 1 })
+    await setSetting('dollShape', { hips: 1.2, legs: 0.9 })
+    expect(await getSetting('dollShape', { hips: 1 })).toEqual({ hips: 1.2, legs: 0.9 })
+  })
+})
