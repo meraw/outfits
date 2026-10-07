@@ -22,6 +22,14 @@ export async function getSetting(key, fallback) {
   return value === undefined ? fallback : value
 }
 
+// Every saved setting as { key: value }, for backups.
+export async function getAllSettings() {
+  const db = await dbPromise
+  const tx = db.transaction('settings')
+  const [keys, values] = await Promise.all([tx.store.getAllKeys(), tx.store.getAll()])
+  return Object.fromEntries(keys.map((k, i) => [k, values[i]]))
+}
+
 export async function setSetting(key, value) {
   await (await dbPromise).put('settings', value, key)
 }

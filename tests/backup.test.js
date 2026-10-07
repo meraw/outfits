@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
-import { saveItem, listItems, getImages, deleteItem, newItem } from '../src/db.js'
+import { saveItem, listItems, getImages, deleteItem, newItem, getSetting, setSetting } from '../src/db.js'
+import { zipSync, strToU8 } from 'fflate'
 import { makeBackup, restoreBackup } from '../src/lib/backup.js'
 
 const blob = (text, type) => new Blob([text], { type })
@@ -67,5 +68,24 @@ describe('backup', () => {
     await addItem({ category: 'top' }, 'x')
     await expect(restoreBackup(blob('hello', 'text/plain'))).rejects.toThrow(/not an Outfits backup/)
     expect(await listItems()).toHaveLength(1)
+  })
+
+  it('brings back the doll’s body shape too', async () => {
+    await wipe()
+    await addItem({ category: 'top' }, 's')
+    await setSetting('dollShape', { shoulders: 1, bust: 1.1, waist: 0.9, hips: 1.2, torso: 1, legs: 0.95 })
+    const file = await makeBackup()
+    await setSetting('dollShape', { shoulders: 1, bust: 1, waist: 1, hips: 1, torso: 1, legs: 1 })
+    await restoreBackup(file)
+    expect(await getSetting('dollShape')).toEqual({ shoulders: 1, bust: 1.1, waist: 0.9, hips: 1.2, torso: 1, legs: 0.95 })
+  })
+
+  it('restores a backup made before shapes were saved, leaving the shape alone', async () => {
+    await wipe()
+    const item = { ...newItem(), category: 'top' }
+    const old = zipSync({ 'items.json': strToU8(JSON.stringify({ app: 'outfits', version: 1, createdAt: '2026-10-07T00:00:00Z', items: [item] })) })
+    await setSetting('dollShape', { hips: 1.1 })
+    expect(await restoreBackup(new Blob([old]))).toBe(1)
+    expect(await getSetting('dollShape')).toEqual({ hips: 1.1 })
   })
 })

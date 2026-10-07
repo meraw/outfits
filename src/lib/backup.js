@@ -1,8 +1,10 @@
 // Backup file: one .zip holding items.json and every photo.
-//   items.json                     { app, version, createdAt, items: [...] }
+//   items.json                     { app, version, createdAt, items: [...], settings: {...} }
+//                                  (settings, like the doll's shape, since Oct 2026;
+//                                  older backups simply don't have them)
 //   images/<id>/original.jpg       (and cutout.png, thumb.webp)
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
-import { listItems, getImages, putItemsWithImages } from '../db.js'
+import { listItems, getImages, putItemsWithImages, getAllSettings, setSetting } from '../db.js'
 
 const APP = 'outfits'
 const VERSION = 1
@@ -12,8 +14,9 @@ const TYPE = Object.fromEntries(Object.entries(EXT).map(([t, e]) => [e, t]))
 
 export async function makeBackup() {
   const items = await listItems()
+  const settings = await getAllSettings()
   const files = {
-    'items.json': strToU8(JSON.stringify({ app: APP, version: VERSION, createdAt: new Date().toISOString(), items }, null, 1)),
+    'items.json': strToU8(JSON.stringify({ app: APP, version: VERSION, createdAt: new Date().toISOString(), items, settings }, null, 1)),
   }
   for (const item of items) {
     const images = await getImages(item.id)
@@ -51,6 +54,9 @@ export async function restoreBackup(file) {
     return { item, images }
   })
   await putItemsWithImages(entries)
+  if (data.settings && typeof data.settings === 'object') {
+    for (const [key, value] of Object.entries(data.settings)) await setSetting(key, value)
+  }
   return entries.length
 }
 
