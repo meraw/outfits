@@ -7,16 +7,18 @@ import {
 } from '../lib/doll.js'
 import { CATEGORY_LABELS } from './item-form.js'
 import { fitFromBlob, validFit } from '../lib/fit.js'
-import { sleeveMesh, triangleMatrix, expandedTriangle } from '../lib/garment-mesh.js'
+import { sleeveMesh } from '../lib/garment-mesh.js'
+import { warpTriangles } from '../lib/warp.js'
 
 const OUTFIT_KEY = 'dollOutfit' // ids of what the doll is wearing
-let garmentSequence = 0
+const BENT_CACHE_SIZE = 24 // bent garment pictures kept per visit
 
 export async function dollScreen(root) {
   const items = await listItems()
   let shape = { ...DEFAULT_SHAPE, ...(await getSetting('dollShape', DEFAULT_SHAPE)) }
   let outfit = loadOutfit().map((id) => items.find((i) => i.id === id)).filter(Boolean)
   const pictures = new Map() // id → { url, aspect, fit }; also deduplicates in-flight reads
+  const bent = new Map() // cache key → Promise<{ url, box }>: garments with bent sleeves
   const thumbs = new Map() // id → thumbnail url
 
   // The drawing
@@ -37,18 +39,57 @@ export async function dollScreen(root) {
   }
 
   let drawVersion = 0
-  async function drawClothes(geo) {
+  async function drawClothes(geo, quality) {
     const version = ++drawVersion
     const drawn = sortForDrawing(outfit)
     const loaded = await Promise.all(drawn.map(picture))
+    if (version !== drawVersion) return
+    const scale = pixelsPerUnit(quality)
+    const pieces = await Promise.all(drawn.map(async (item, index) => {
+      const pic = loaded[index]
+      if (!pic) return null
+      const box = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength)
+      const mesh = sleeveMesh(pic.fit, box, geo)
+      if (!mesh) return svg('image', { href: pic.url, ...box, preserveAspectRatio: 'none', 'data-id': item.id })
+      const done = await bentPicture(item, pic, mesh, scale)
+      return done && svg('image', { href: done.url, ...done.box, preserveAspectRatio: 'none', 'data-id': item.id, 'data-fitting': 'sleeves' })
+    }))
     // Slider input / wardrobe taps can finish out of order while images load.
     if (version !== drawVersion) return
-    clothes.replaceChildren(...drawn.flatMap((item, index) => {
-      const pic = loaded[index]
-      if (!pic) return []
-      const r = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength)
-      return garmentPicture(item, pic, r, geo)
-    }))
+    clothes.replaceChildren(...pieces.filter(Boolean))
+  }
+
+  // Sharp enough for this screen when settled; rougher (and much quicker)
+  // while a slider is being dragged.
+  function pixelsPerUnit(quality) {
+    const r = stage.getBoundingClientRect()
+    const css = Math.min(r.width / DOLL_WIDTH, r.height / DOLL_HEIGHT) || 1
+    const sharp = Math.min(3, Math.max(1, css * (window.devicePixelRatio || 1)))
+    return quality === 'draft' ? Math.max(0.6, sharp / 2.5) : sharp
+  }
+
+  // A garment with sleeves, bent to the arms as one seamless picture.
+  function bentPicture(item, pic, mesh, scale) {
+    const key = [item.id, scale.toFixed(2), item.hemLength ?? '', ...Object.values(shape)].join('|')
+    if (!bent.has(key)) {
+      if (bent.size >= BENT_CACHE_SIZE) {
+        const [oldest, old] = bent.entries().next().value
+        bent.delete(oldest)
+        old.then((b) => b && URL.revokeObjectURL(b.url))
+      }
+      bent.set(key, (async () => {
+        const pixels = await pic.pixels()
+        if (!pixels) return null
+        const out = warpTriangles(pixels, mesh, scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = out.width
+        canvas.height = out.height
+        canvas.getContext('2d').putImageData(new ImageData(out.data, out.width, out.height), 0, 0)
+        const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'))
+        return blob && { url: blobUrl(blob), box: out.box }
+      })())
+    }
+    return bent.get(key)
   }
 
   function picture(item) {
@@ -61,15 +102,36 @@ export async function dollScreen(root) {
       // Old wardrobe items get fitted lazily, once per screen visit. Avoid
       // rewriting their tags/dates or eagerly scanning hundreds of photos.
       const fit = validFit(item.fit, item.category) ? item.fit : await fitFromBlob(images.cutout, item.category)
-      return { url: blobUrl(images.cutout), aspect, fit }
+      let pixels
+      return {
+        url: blobUrl(images.cutout), aspect, fit,
+        // The cutout's pixels, read only for garments that get bent.
+        pixels: () => (pixels ??= readPixels(images.cutout)),
+      }
     })())
     return pictures.get(item.id)
   }
 
-  async function redraw() {
+  async function redraw(quality = 'sharp') {
     const geo = dollGeometry(shape)
     drawBody(geo)
-    await drawClothes(geo)
+    await drawClothes(geo, quality)
+  }
+
+  // Slider dragging fires many times a second. Draw at most one frame at a
+  // time, always the latest shape, and sharpen it when the slider is let go.
+  let wanted = null, drawing = false
+  async function requestRedraw(quality) {
+    wanted = wanted === 'sharp' || quality === 'sharp' ? 'sharp' : 'draft'
+    if (drawing) return
+    drawing = true
+    while (wanted) {
+      const q = wanted
+      wanted = null
+      await redraw(q)
+      await new Promise((ok) => requestAnimationFrame(ok))
+    }
+    drawing = false
   }
 
   // Clothes to pick from, one category at a time
@@ -109,8 +171,8 @@ export async function dollScreen(root) {
   const sliders = SHAPE_SLIDERS.map(([key, label]) => {
     const input = h('input', {
       type: 'range', min: SHAPE_MIN, max: SHAPE_MAX, step: 0.01, value: shape[key], 'aria-label': label,
-      oninput: () => { shape = { ...shape, [key]: Number(input.value) }; redraw() },
-      onchange: () => setSetting('dollShape', shape),
+      oninput: () => { shape = { ...shape, [key]: Number(input.value) }; requestRedraw('draft') },
+      onchange: () => { setSetting('dollShape', shape); requestRedraw('sharp') },
     })
     return h('label', { class: 'slider' }, h('span', {}, label), input)
   })
@@ -151,22 +213,22 @@ export async function dollScreen(root) {
   await renderPicker()
 }
 
-function garmentPicture(item, pic, box, geo) {
-  const mesh = sleeveMesh(pic.fit, box, geo)
-  if (!mesh) return svg('image', { href: pic.url, ...box, preserveAspectRatio: 'none', 'data-id': item.id })
-  const id = `garment-${++garmentSequence}`
-  const defs = svg('defs', {}, svg('image', { id, href: pic.url, width: 1, height: 1, preserveAspectRatio: 'none' }))
-  const pieces = mesh.flatMap(({ source, destination }, i) => {
-    const matrix = triangleMatrix(source, destination)
-    if (!matrix) return []
-    // Tiny clip overlap hides anti-aliased hairline gaps between triangles.
-    const points = expandedTriangle(destination)
-    const clip = `${id}-clip-${i}`
-    defs.append(svg('clipPath', { id: clip, clipPathUnits: 'userSpaceOnUse' },
-      svg('polygon', { points: points.map((p) => p.join(',')).join(' ') })))
-    return svg('g', { 'clip-path': `url(#${clip})` }, svg('use', { href: `#${id}`, transform: `matrix(${matrix.join(' ')})` }))
-  })
-  return svg('g', { 'data-id': item.id, 'data-fitting': 'sleeves' }, defs, ...pieces)
+// Reads a cutout's pixels for bending, capped in size to spare phone memory.
+async function readPixels(blob) {
+  try {
+    const bmp = await createImageBitmap(blob)
+    const scale = Math.min(1, 1000 / Math.max(bmp.width, bmp.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(bmp.width * scale))
+    canvas.height = Math.max(1, Math.round(bmp.height * scale))
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+    bmp.close()
+    return ctx.getImageData(0, 0, canvas.width, canvas.height)
+  } catch (err) {
+    console.warn('Could not read garment pixels', err)
+    return null
+  }
 }
 
 function loadOutfit() {
