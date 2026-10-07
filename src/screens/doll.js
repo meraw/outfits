@@ -1,6 +1,6 @@
 // The paper doll: reshape the body and dress it by tapping clothes.
 import { h, svg, blobUrl } from '../ui.js'
-import { listItems, getImages, getSetting, setSetting } from '../db.js'
+import { listItems, getImages, getSetting, setSetting, saveItem } from '../db.js'
 import {
   DOLL_WIDTH, DOLL_TOP, DOLL_HEIGHT, SHAPE_SLIDERS, SHAPE_MIN, SHAPE_MAX, DEFAULT_SHAPE,
   dollGeometry, placeItem, wearItem, sortForDrawing,
@@ -9,6 +9,7 @@ import { CATEGORY_LABELS } from './item-form.js'
 import { fitFromBlob, validFit } from '../lib/fit.js'
 import { sleeveMesh } from '../lib/garment-mesh.js'
 import { warpTriangles } from '../lib/warp.js'
+import { applyAdjust, cleanAdjust, gestureAdjust, isAdjusted, pickGarment } from '../lib/adjust.js'
 
 const OUTFIT_KEY = 'dollOutfit' // ids of what the doll is wearing
 const BENT_CACHE_SIZE = 24 // bent garment pictures kept per visit
@@ -24,10 +25,15 @@ export async function dollScreen(root) {
   // The drawing
   const body = svg('g', { class: 'doll-body' })
   const clothes = svg('g')
+  const marks = svg('g', { 'pointer-events': 'none' }) // outline of the garment being adjusted
   const stage = svg('svg', {
     class: 'doll-svg', viewBox: `0 ${DOLL_TOP} ${DOLL_WIDTH} ${DOLL_HEIGHT}`,
     preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Paper doll',
-  }, body, clothes)
+    // Fingers on the doll move and pinch clothes instead of scrolling the page.
+    style: 'touch-action: none',
+  }, body, clothes, marks)
+  let garments = [] // as drawn, bottom first: { id, item, base, box, alphaAt }
+  let selected = null // id of the garment being adjusted
 
   function drawBody(geo) {
     body.replaceChildren(
@@ -45,18 +51,38 @@ export async function dollScreen(root) {
     const loaded = await Promise.all(drawn.map(picture))
     if (version !== drawVersion) return
     const scale = pixelsPerUnit(quality)
-    const pieces = await Promise.all(drawn.map(async (item, index) => {
+    const placed = await Promise.all(drawn.map(async (item, index) => {
       const pic = loaded[index]
       if (!pic) return null
-      const box = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength)
+      const base = placeItem(item.category, pic.aspect, geo, pic.fit, item.hemLength)
+      const box = applyAdjust(base, item.dollAdjust) // the hand adjustment, if any
       const mesh = sleeveMesh(pic.fit, box, geo)
-      if (!mesh) return svg('image', { href: pic.url, ...box, preserveAspectRatio: 'none', 'data-id': item.id })
+      if (!mesh) {
+        pic.pixels().then((p) => { pic.pixelData = p }) // for picking by tap
+        return {
+          item, base, box, alphaAt: (u, v) => alphaIn(pic.pixelData, u, v),
+          node: svg('image', { href: pic.url, ...box, preserveAspectRatio: 'none', 'data-id': item.id }),
+        }
+      }
       const done = await bentPicture(item, pic, mesh, scale)
-      return done && svg('image', { href: done.url, ...done.box, preserveAspectRatio: 'none', 'data-id': item.id, 'data-fitting': 'sleeves' })
+      return done && {
+        item, base, box: done.box, alphaAt: (u, v) => alphaIn(done.alpha, u, v),
+        node: svg('image', { href: done.url, ...done.box, preserveAspectRatio: 'none', 'data-id': item.id, 'data-fitting': 'sleeves' }),
+      }
     }))
     // Slider input / wardrobe taps can finish out of order while images load.
     if (version !== drawVersion) return
-    clothes.replaceChildren(...pieces.filter(Boolean))
+    garments = placed.filter(Boolean).map((g) => ({ ...g, id: g.item.id }))
+    clothes.replaceChildren(...garments.map((g) => g.node))
+    drawMarks()
+  }
+
+  function drawMarks() {
+    const g = garments.find((x) => x.id === selected)
+    marks.replaceChildren(...(g ? [svg('rect', {
+      x: g.box.x - 4, y: g.box.y - 4, width: g.box.width + 8, height: g.box.height + 8, rx: 8,
+      fill: 'none', stroke: '#b5654a', 'stroke-width': 2.5, 'stroke-dasharray': '8 6',
+    })] : []))
   }
 
   // Sharp enough for this screen when settled; rougher (and much quicker)
@@ -70,7 +96,8 @@ export async function dollScreen(root) {
 
   // A garment with sleeves, bent to the arms as one seamless picture.
   function bentPicture(item, pic, mesh, scale) {
-    const key = [item.id, scale.toFixed(2), item.hemLength ?? '', ...Object.values(shape)].join('|')
+    const a = cleanAdjust(item.dollAdjust)
+    const key = [item.id, scale.toFixed(2), item.hemLength ?? '', a.dx, a.dy, a.scale, ...Object.values(shape)].join('|')
     if (!bent.has(key)) {
       if (bent.size >= BENT_CACHE_SIZE) {
         const [oldest, old] = bent.entries().next().value
@@ -86,7 +113,7 @@ export async function dollScreen(root) {
         canvas.height = out.height
         canvas.getContext('2d').putImageData(new ImageData(out.data, out.width, out.height), 0, 0)
         const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'))
-        return blob && { url: blobUrl(blob), box: out.box }
+        return blob && { url: blobUrl(blob), box: out.box, alpha: out }
       })())
     }
     return bent.get(key)
@@ -134,6 +161,98 @@ export async function dollScreen(root) {
     drawing = false
   }
 
+  // Adjusting a garment by hand: tap it on the doll, then drag / pinch.
+  const pointers = new Map() // pointerId → [x, y] in doll units
+  let gesture = null // { item, original, start, base, ids, from }
+  const toDoll = (e) => {
+    const m = stage.getScreenCTM()
+    if (!m) return [0, 0]
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse())
+    return [p.x, p.y]
+  }
+  function beginGesture(item) {
+    const g = garments.find((x) => x.id === item.id)
+    if (!g) { gesture = null; return }
+    const ids = [...pointers.keys()].slice(0, 2)
+    // original: before the first finger landed, to know whether to save.
+    const original = gesture?.item === item ? gesture.original : cleanAdjust(item.dollAdjust)
+    gesture = { item, original, start: cleanAdjust(item.dollAdjust), base: g.base, ids, from: ids.map((id) => pointers.get(id)) }
+  }
+  async function finishGesture() {
+    const item = gesture?.item
+    const moved = item && JSON.stringify(cleanAdjust(item.dollAdjust)) !== JSON.stringify(gesture.original)
+    gesture = null
+    if (moved) await saveItem(item)
+    renderBar()
+    requestRedraw('sharp')
+  }
+  stage.addEventListener('pointerdown', (e) => {
+    const p = toDoll(e)
+    pointers.set(e.pointerId, p)
+    try { stage.setPointerCapture(e.pointerId) } catch {} // keep following a finger that slides off the doll
+    if (pointers.size === 1) {
+      const hit = pickGarment(garments, p)
+      if (hit !== selected) { selected = hit; renderBar(); drawMarks() }
+    }
+    const item = outfit.find((i) => i.id === selected)
+    if (item) beginGesture(item) // restarts cleanly when a second finger lands
+  })
+  stage.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return
+    pointers.set(e.pointerId, toDoll(e))
+    if (!gesture) return
+    const to = gesture.ids.map((id) => pointers.get(id))
+    if (to.some((p) => !p)) return
+    gesture.item.dollAdjust = gestureAdjust(gesture.start, gesture.base, gesture.from, to)
+    requestRedraw('draft')
+  })
+  const lift = (e) => {
+    if (!pointers.delete(e.pointerId)) return
+    if (!gesture) return
+    // One finger left: carry on dragging from where the garment is now.
+    if (pointers.size > 0) beginGesture(gesture.item)
+    else finishGesture()
+  }
+  stage.addEventListener('pointerup', lift)
+  stage.addEventListener('pointercancel', lift)
+  // Mouse wheel resizes on a computer (around the pointer).
+  let wheelSave = null
+  stage.addEventListener('wheel', (e) => {
+    const item = outfit.find((i) => i.id === selected)
+    const g = garments.find((x) => x.id === selected)
+    if (!item || !g) return
+    e.preventDefault()
+    const [x, y] = toDoll(e)
+    const k = Math.exp(-e.deltaY * 0.0015)
+    item.dollAdjust = gestureAdjust(item.dollAdjust, g.base, [[x - 50, y], [x + 50, y]], [[x - 50 * k, y], [x + 50 * k, y]])
+    requestRedraw('draft')
+    clearTimeout(wheelSave)
+    wheelSave = setTimeout(async () => { await saveItem(item); renderBar(); requestRedraw('sharp') }, 400)
+  }, { passive: false })
+
+  const bar = h('div', { class: 'adjust-bar' })
+  function renderBar() {
+    const item = outfit.find((i) => i.id === selected)
+    if (!item) {
+      selected = null
+      bar.replaceChildren(h('p', { class: 'hint' }, 'Tip: tap a garment on the doll to adjust how it sits.'))
+      return
+    }
+    const name = `${item.colour?.name ?? ''} ${CATEGORY_LABELS[item.category] ?? ''}`.trim()
+    bar.replaceChildren(
+      h('p', { class: 'hint' }, `Adjusting ${name}: drag to move, pinch to resize.`),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'small', disabled: !isAdjusted(item.dollAdjust), onclick: async () => {
+          delete item.dollAdjust
+          await saveItem(item)
+          renderBar()
+          requestRedraw('sharp')
+        } }, 'Reset fit'),
+        h('button', { type: 'button', class: 'small', onclick: () => { selected = null; renderBar(); drawMarks() } }, 'Done')),
+    )
+  }
+  renderBar()
+
   // Clothes to pick from, one category at a time
   const present = Object.keys(CATEGORY_LABELS).filter((c) => items.some((i) => i.category === c))
   let tab = present[0]
@@ -160,6 +279,7 @@ export async function dollScreen(root) {
           outfit = wearItem(outfit, item)
           saveOutfit(outfit)
           await redraw()
+          renderBar()
           renderPicker()
         },
       }, thumbs.get(item.id) ? h('img', { src: thumbs.get(item.id), alt: '' }) : null))
@@ -200,6 +320,7 @@ export async function dollScreen(root) {
     h('div', { class: 'doll-layout' },
       h('div', { class: 'doll-stage' }, stage),
       h('div', { class: 'doll-controls' },
+        bar,
         items.length
           ? [tabs, strip]
           : h('p', { class: 'muted' }, 'Add some clothes to your wardrobe to dress the doll.'),
@@ -213,6 +334,14 @@ export async function dollScreen(root) {
   )
   await redraw()
   await renderPicker()
+}
+
+// How solid a picture is at (u, v), 0–1 across it. Unknown counts as solid.
+function alphaIn(img, u, v) {
+  if (!img?.data) return 1
+  const x = Math.min(img.width - 1, Math.max(0, Math.floor(u * img.width)))
+  const y = Math.min(img.height - 1, Math.max(0, Math.floor(v * img.height)))
+  return img.data[(y * img.width + x) * 4 + 3] / 255
 }
 
 // Reads a cutout's pixels for bending, capped in size to spare phone memory.
