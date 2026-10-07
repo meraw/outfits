@@ -133,6 +133,8 @@ export async function dollScreen(root) {
       h('a', { href: '#/', class: 'back', 'aria-label': 'Back' }, '‹'),
       h('h1', {}, 'Doll'),
       undress),
+    h('div', { class: 'row model-link' }, h('a', { href: '#/3d', class: 'pill' }, 'Try 3D studio'),
+      h('span', { class: 'hint' }, 'A rotatable mannequin with adapted clothes')),
     h('div', { class: 'doll-layout' },
       h('div', { class: 'doll-stage' }, stage),
       h('div', { class: 'doll-controls' },
